@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+web-console/node_modules/
+package-lock.json
+
+# Builds & Outputs
+dist/
+dist_engine/
+.svelte-kit/
+web-console/.svelte-kit/
+web-console/build/
+
+# Dynamic System Configurations & Identity Keys
+config/*.json
+!config/default.json
+data/
+*.moon
+planet
+
+# Logs & Archives
+*.log
+*.tar.gz
+/tmp/
+
+# OS & IDE Files
+.DS_Store
+.vscode/
+.idea/

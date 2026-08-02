@@ -1,0 +1,122 @@
+openapi: 3.0.3
+info:
+  title: ZGalaxy - Planet & Moon Infrastructure Management API
+  description: |
+    مواصفات API مخصصة وشاملة 100% لمشروع ZGalaxy لإدارة وتوليد البنية التحتية الذاتية (Planet & Moon) لشبكات ZeroTier.
+    تتضمن دعم العناوين الداخلية والخارجية المنفصلة، وإدارة أسماء النطاقات، ونظام المتابعة والتحديث التلقائي لـ IP الديناميكي (DDNS Engine).
+  version: 1.2.0
+servers:
+  - url: http://localhost:3000
+    description: خادم ZGalaxy المحلي
+paths:
+  /api/v1/health:
+    get:
+      summary: فحص صحة الخادم والمحرك
+      responses:
+        '200':
+          description: الخادم يعمل بنجاح
+
+  /api/v1/ddns/status:
+    get:
+      summary: استرجاع حالة المزامنة وتتبع عنوان IP الديناميكي
+      responses:
+        '200':
+          description: حالة مزامنة الـ DDNS وتتبع الـ IP
+
+  /api/v1/ddns/sync:
+    post:
+      summary: تنفيذ مزامنة وفحص يدوي فوري لتحديث الـ IP وتوليد الملفات
+      responses:
+        '200':
+          description: نتيجة المزامنة والتحديث
+
+  /api/v1/ddns/config:
+    post:
+      summary: ضبط إعدادات المزامنة الدورية ومزود الـ DDNS
+      responses:
+        '200':
+          description: الإعدادات المحدثة
+
+  /api/v1/network/addresses:
+    get:
+      summary: قراءة واستكشاف العناوين الداخلية (LAN) والخارجية (WAN) بشكل منفصل
+      responses:
+        '200':
+          description: قائمة العناوين الداخلية والخارجية والواجهات
+
+  /api/v1/domains:
+    get:
+      summary: عرض أسماء النطاقات المربوطة بالخدمة
+      responses:
+        '200':
+          description: قائمة النطاقات المربوطة
+
+  /api/v1/domains/verify:
+    post:
+      summary: فحص والتحقق من توجيه الـ DNS لاسم نطاق معين
+      responses:
+        '200':
+          description: نتيجة الفحص وتوجيه IPv4/IPv6
+
+  /api/v1/domains/bind:
+    post:
+      summary: ربط اسم نطاق بـ Planet أو Moon
+      responses:
+        '200':
+          description: تم الربط بنجاح
+
+  /api/v1/planet/info:
+    get:
+      summary: قراءة هويات وبيانات الـ Planet التأسيسية
+      responses:
+        '200':
+          description: بيانات Planet الحالية
+
+  /api/v1/planet/build:
+    post:
+      summary: إنشاء وإصدار خادم Planet جديد بـ IP أو Domain Name
+      responses:
+        '200':
+          description: تم توليد الـ Planet بنجاح
+
+  /api/v1/planet/download:
+    get:
+      summary: تنزيل ملف الـ Planet للعملاء
+      responses:
+        '200':
+          description: ملف planet الثنائي
+
+  /api/v1/moons:
+    get:
+      summary: عرض كافة خوادم Moon المتاحة
+      responses:
+        '200':
+          description: قائمة خوادم Moon
+
+  /api/v1/moons/create:
+    post:
+      summary: إنشاء خادم Moon جديد
+      responses:
+        '201':
+          description: تم إنشاء Moon بنجاح
+
+  /api/v1/identity/status:
+    get:
+      summary: فحص صحة وصلاحية الهويات والشهادات الحالية
+      responses:
+        '200':
+          description: حالة الهويات
+
+  /api/v1/backup/export:
+    post:
+      summary: تصدير حزمة احتياطية كاملة
+      responses:
+        '200':
+          description: الأرشيف الاحتياطي المشفر
+
+  /api/v1/backup/import:
+    post:
+      summary: استعادة البنية التحتية من أرشيف احتياطي
+      responses:
+        '200':
+          description: تمت الاستعادة بنجاح

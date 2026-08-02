@@ -1,0 +1,84 @@
+FROM alpine:3.14 as builder
+
+ENV TZ=Asia/Shanghai
+ARG TAG=main
+ENV TAG=${TAG}
+
+WORKDIR /app
+ADD ./entrypoint.sh /app/entrypoint.sh
+ADD ./http_server.js /app/http_server.js
+ADD ./mkmoonworld-x86_64 /app/mkmoonworld-x86_64
+
+# init tool
+RUN set -x\
+    && apk update\
+    && apk add --no-cache git python3 npm make g++ linux-headers curl pkgconfig openssl-dev  jq build-base  gcc \
+    && echo "env prepare success!"
+
+# make zerotier-one
+RUN set -x\
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y\
+    && source "$HOME/.cargo/env"\
+    && git clone https://github.com/zerotier/ZeroTierOne.git\
+    && cd ZeroTierOne\
+    && git checkout ${TAG}\
+    && echo "切换到tag:${TAG}"\
+    && make ZT_SYMLINK=1 \
+    && make\
+    && make install\
+    && echo "make success!"\
+    ; zerotier-one -d  \
+    ; sleep 5s && ps -ef |grep zerotier-one |grep -v grep |awk '{print $1}' |xargs kill -9\
+    && echo "zerotier-one init success!"
+
+
+#make ztncui 
+RUN set -x \
+    && mkdir /app -p \
+    &&  cd /app \
+    && git clone --progress https://ghproxy.markxu.online/https://github.com/key-networks/ztncui.git\
+    && cd /app/ztncui/src \
+    && npm config set registry https://registry.npmmirror.com\
+    && npm install -g node-gyp\
+# make zerotier-planet-moon-engine
+ADD ./package.json /app/package.json
+ADD ./tsconfig.json /app/tsconfig.json
+ADD ./src /app/src
+ADD ./docs /app/docs
+RUN cd /app && npm install && npm run build
+
+FROM alpine:3.14
+
+WORKDIR /app
+
+ENV IP_ADDR4=''
+ENV IP_ADDR6=''
+
+ENV ZT_PORT=9994
+ENV API_PORT=3443
+ENV FILE_SERVER_PORT=3000
+
+ENV GH_MIRROR="https://ghproxy.markxu.online/"
+ENV FILE_KEY=''
+ENV TZ=Asia/Shanghai
+
+COPY --from=builder /app/ztncui /bak/ztncui
+COPY --from=builder /var/lib/zerotier-one /bak/zerotier-one
+
+COPY --from=builder /app/ZeroTierOne/zerotier-one /usr/sbin/zerotier-one
+COPY --from=builder /app/entrypoint.sh /app/entrypoint.sh
+COPY --from=builder /app/mkmoonworld-x86_64 /app/mkmoonworld-x86_64
+COPY --from=builder /app/package.json /app/package.json
+COPY --from=builder /app/node_modules /app/node_modules
+COPY --from=builder /app/dist_engine /app/dist_engine
+COPY --from=builder /app/docs /app/docs
+
+RUN set -x ;sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories \
+    && apk update \
+    && apk add --no-cache npm curl jq openssl\
+    && mkdir /app/config -p 
+
+
+VOLUME [ "/app/dist","/app/ztncui","/var/lib/zerotier-one","/app/config"]
+
+CMD ["/bin/sh","/app/entrypoint.sh"]

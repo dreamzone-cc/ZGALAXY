@@ -1,0 +1,15 @@
+{
+  "id": "1000000000",
+  "objtype": "moon",
+  "roots": [
+    {
+      "id": "1000000000",
+      "stableEndpoints": [
+        "brg-dz.dreamzone.cc/9993",
+        "105.97.148.227/9993"
+      ]
+    }
+  ],
+  "signingKey": "",
+  "signingKey_secret": ""
+}
