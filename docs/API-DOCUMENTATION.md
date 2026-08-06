@@ -30,7 +30,7 @@ Authorization: Bearer YOUR_API_SECRET_KEY
   {
     "status": "ok",
     "timestamp": "2026-07-31T20:21:00.000Z",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "service": "ZGalaxy Planet/Moon Infrastructure Engine"
   }
   ```

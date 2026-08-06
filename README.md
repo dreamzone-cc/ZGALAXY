@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/dreamzone-cc/ZGALAXY"><img src="https://img.shields.io/badge/Platform-ZGALAXY%20v1.2.0-ffb700?style=for-the-badge&logo=zerotier&logoColor=000" alt="ZGALAXY v1.2.0" /></a>
+  <a href="https://github.com/dreamzone-cc/ZGALAXY"><img src="https://img.shields.io/badge/Platform-ZGALAXY%20v1.3.0-ffb700?style=for-the-badge&logo=zerotier&logoColor=000" alt="ZGALAXY v1.3.0" /></a>
   <a href="https://github.com/dreamzone-cc/ZGALAXY/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-00ffb7?style=for-the-badge" alt="AGPL-3.0 License" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Architecture-Decentralized%20Mesh-00b7ff?style=for-the-badge" alt="Decentralized Mesh" /></a>
   <a href="#"><img src="https://img.shields.io/badge/UI%20Theme-Obsidian%20%26%20Gold%20TUI-ffd700?style=for-the-badge" alt="Obsidian Gold TUI" /></a>

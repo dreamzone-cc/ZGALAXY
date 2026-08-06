@@ -1,6 +1,6 @@
 {
   "name": "zgalaxy-engine",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "ZGALAXY Standalone ZeroTier Planet & Moon Infrastructure Engine",
   "main": "dist_engine/engine/server.js",
   "license": "AGPL-3.0",

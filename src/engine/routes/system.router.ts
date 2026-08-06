@@ -11,7 +11,7 @@ systemRouter.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: '1.2.0',
+    version: '1.3.0',
     service: 'ZGalaxy Planet/Moon Infrastructure Engine',
   });
 });
