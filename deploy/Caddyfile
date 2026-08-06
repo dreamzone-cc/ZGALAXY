@@ -1,0 +1,36 @@
+# ZGALAXY TLS reverse-proxy example (Caddy)
+#
+# Recommended production topology:
+#   Internet -> Caddy (443/HTTPS) -> ZGalaxy Engine (3000) + Web Console (5173)
+#
+# Place this file at /etc/caddy/Caddyfile and run:
+#   caddy run
+#
+# The web console talks to the engine via same-origin /api (no CORS needed).
+# All plaintext HTTP is redirected to HTTPS; HSTS is enabled.
+
+planet.example.com {
+	# Web console (SvelteKit adapter-node build)
+	reverse_proxy 127.0.0.1:5173
+
+	# Engine API under /api (same origin as the console -> no CORS issues)
+	handle /api/* {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	# Swagger docs
+	handle /api/docs* {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+	}
+
+	encode zstd gzip
+}
+
+# Plain HTTP must never be served: Caddy auto-redirects to HTTPS by default.

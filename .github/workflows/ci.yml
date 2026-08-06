@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  engine:
+    name: Engine build + security regression tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install engine deps
+        run: npm ci
+
+      - name: Build engine (tsc)
+        run: npm run build
+
+      - name: Run security regression tests (RBAC, SSRF, traversal, injection) on Node
+        run: node --test test/*.test.js
+
+  engine-bun:
+    name: Engine tests under Bun (default runtime)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install engine deps
+        run: bun install --frozen-lockfile
+
+      - name: Build engine (tsc)
+        run: bunx tsc
+
+      - name: Run security regression tests under Bun
+        run: bun test test/*.test.js
+
+  console:
+    name: Web console build + type check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-console
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web-console/package-lock.json
+
+      - name: Install console deps
+        run: npm ci
+
+      - name: svelte-check (type diagnostics)
+        run: npm run check
+
+      - name: Production build (adapter-node)
+        run: npm run build
+
+  openapi:
+    name: OpenAPI spec validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install engine deps (yamljs)
+        run: npm ci
+
+      - name: Validate openapi.yaml parses + route parity
+        run: node -e "
+          const YAML=require('yamljs');
+          const fs=require('fs');
+          const d=YAML.load('docs/openapi.yaml');
+          if(!d.paths)throw new Error('no paths');
+          // count implemented route operations
+          const files=fs.readdirSync('src/engine/routes').filter(f=>f.endsWith('.router.ts'));
+          let ops=0;
+          for(const f of files){const c=fs.readFileSync('src/engine/routes/'+f,'utf8');ops+=(c.match(/\.(get|post|put|delete|patch|all)\(/g)||[]).length;}
+          const docOps=Object.values(d.paths).reduce((a,p)=>a+Object.keys(p).length,0);
+          console.log('openapi paths:',Object.keys(d.paths).length,'| documented ops:',docOps,'| implemented ops:',ops);
+          if(docOps < ops) throw new Error('OpenAPI is missing endpoints (doc='+docOps+' impl='+ops+')');
+          console.log('OK');
+          "

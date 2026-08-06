@@ -1,0 +1,341 @@
+:root {
+  --bg-color: #08080a;
+  --panel-bg: #0f0f14;
+  --text-main: #f0f2f5;
+  --text-muted: #828896;
+  --accent-gold: #ffd700;
+  --accent-yellow: #ffb700;
+  --accent-cyan: #ffdf70;
+  --accent-green: #ffd700;
+  --accent-red: #ff3860;
+  --border-color: #262633;
+  --font-mono: 'JetBrains Mono', 'Courier New', Courier, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  touch-action: manipulation; /* no double-tap zoom delay on mobile */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.5;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+}
+
+/* TUI Box Container */
+.tui-box {
+  background-color: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+}
+
+.tui-header {
+  background-color: #15151f;
+  border-bottom: 1px solid var(--border-color);
+  padding: 10px 14px;
+  font-weight: 700;
+  color: var(--accent-gold);
+  letter-spacing: 0.5px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.tui-body {
+  padding: 16px;
+}
+
+/* TUI Buttons */
+.tui-btn {
+  background: #15151f;
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+  display: inline-block;
+  text-decoration: none;
+  font-size: 13px;
+  line-height: 1.4;
+  transition: all 0.15s ease-in-out;
+  touch-action: manipulation;
+}
+
+.tui-btn:hover {
+  background: var(--accent-gold);
+  color: #000;
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.3);
+}
+
+.tui-btn:focus-visible {
+  outline: 2px solid var(--accent-gold);
+  outline-offset: 2px;
+}
+
+.tui-btn-success {
+  background: #1e1b00;
+  color: var(--accent-gold);
+  border-color: var(--accent-gold);
+}
+
+.tui-btn-success:hover {
+  background: var(--accent-gold);
+  color: #000;
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 14px rgba(255, 215, 0, 0.5);
+}
+
+.tui-btn-danger {
+  background: #20080c;
+  color: var(--accent-red);
+  border-color: var(--accent-red);
+}
+
+.tui-btn-danger:hover {
+  background: var(--accent-red);
+  color: #fff;
+  border-color: var(--accent-red);
+  box-shadow: 0 0 14px rgba(255, 56, 96, 0.4);
+}
+
+/* TUI Inputs */
+.tui-input {
+  background: #050508;
+  border: 1px solid var(--border-color);
+  color: var(--accent-gold);
+  font-family: var(--font-mono);
+  padding: 8px 12px;
+  font-size: 13px;
+  width: 100%;
+  line-height: 1.4;
+}
+
+.tui-input:focus {
+  outline: none;
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.2);
+}
+
+select.tui-input {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--accent-gold) 50%),
+    linear-gradient(135deg, var(--accent-gold) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 55%, calc(100% - 12px) 55%;
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 32px;
+}
+
+/* TUI Status Badges */
+.tui-badge {
+  padding: 2px 8px;
+  font-weight: bold;
+  font-size: 12px;
+  display: inline-block;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.tui-badge-ok {
+  background: rgba(255, 215, 0, 0.12);
+  color: var(--accent-gold);
+  border: 1px solid var(--accent-gold);
+}
+
+.tui-badge-error {
+  background: rgba(255, 56, 96, 0.15);
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+}
+
+.tui-badge-warn {
+  background: rgba(255, 183, 0, 0.15);
+  color: var(--accent-yellow);
+  border: 1px solid var(--accent-yellow);
+}
+
+/* TUI Tables — wide tables scroll horizontally on small screens */
+.tui-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+}
+
+.tui-table-wrap .tui-table {
+  min-width: 720px;
+  margin-top: 0;
+}
+
+.tui-table-wrap--fit .tui-table {
+  min-width: 0;
+}
+
+.tui-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+.tui-table th {
+  background: #15151f;
+  color: var(--accent-gold);
+  text-align: left;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tui-table td {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  font-size: 13px;
+  word-break: break-word;
+  vertical-align: top;
+}
+
+/* TUI Modal Dialog Styles */
+.tui-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(4, 4, 6, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  backdrop-filter: blur(4px);
+}
+
+.tui-modal-box {
+  width: 100%;
+  max-width: 520px;
+  max-height: min(80dvh, 640px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 35px rgba(255, 215, 0, 0.25);
+  border: 1px solid var(--accent-gold);
+  margin-bottom: 0;
+}
+
+.tui-modal-box .tui-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tui-modal-msg {
+  color: var(--text-main);
+  font-size: 13px;
+  margin-bottom: 20px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+.tui-modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* Login Gateway Screen */
+.login-gateway {
+  max-width: 540px;
+  margin: 40px auto;
+  padding: 0;
+}
+
+/* Grid Layout */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Mobile & Touch Responsive ---------- */
+@media (max-width: 600px) {
+  body {
+    font-size: 13px;
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+
+  .tui-box {
+    margin-bottom: 12px;
+  }
+
+  .tui-body {
+    padding: 10px;
+  }
+
+  .tui-header {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  /* ≥16px input font prevents iOS Safari auto-zoom on focus */
+  .tui-input {
+    font-size: 16px;
+  }
+
+  /* Comfortable touch targets (even compact inline buttons get a tall hit area) */
+  .tui-btn {
+    font-size: 16px;
+    min-height: 42px;
+    padding: 8px 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .tui-table th,
+  .tui-table td {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+
+  .tui-badge {
+    font-size: 11px;
+  }
+
+  .login-gateway {
+    margin: 12px auto;
+  }
+
+  .tui-modal-actions .tui-btn {
+    flex: 1;
+    text-align: center;
+  }
+}

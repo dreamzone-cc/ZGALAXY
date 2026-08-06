@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+
+# Node / deps (rebuilt inside the image)
+node_modules/
+web-console/node_modules/
+
+# Build outputs
+dist/
+dist_engine/
+web-console/build/
+web-console/.svelte-kit/
+.svelte-kit/
+
+# Live config & secrets — NEVER ship host state into the image
+config/
+*.log
+*.tar.gz
+*.enc
+
+# Runtime identity/data dirs
+data/
+zerotier-var/
+*.moon
+planet
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Misc
+frontend.log
+engine.log
+console.log

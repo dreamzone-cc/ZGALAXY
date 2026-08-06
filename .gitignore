@@ -1,0 +1,29 @@
+# Dependencies (package-lock.json is tracked for reproducible builds)
+node_modules/
+web-console/node_modules/
+
+# Builds & Outputs
+dist/
+dist_engine/
+.svelte-kit/
+web-console/.svelte-kit/
+web-console/build/
+
+# Runtime config, identity keys & databases — NEVER commit live state
+config/
+!config/default.json
+data/
+zerotier-var/
+*.moon
+planet
+
+# Logs & Archives (including encrypted backups)
+*.log
+*.tar.gz
+*.enc
+/tmp/
+
+# OS & IDE Files
+.DS_Store
+.vscode/
+.idea/

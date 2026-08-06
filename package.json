@@ -1,0 +1,36 @@
+{
+  "name": "zgalaxy-engine",
+  "version": "1.2.0",
+  "description": "ZGALAXY Standalone ZeroTier Planet & Moon Infrastructure Engine",
+  "main": "dist_engine/engine/server.js",
+  "license": "AGPL-3.0",
+  "author": "yuuyu_gg (Discord)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dreamzone-cc"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "bun run src/engine/server.ts",
+    "start:node": "node dist_engine/engine/server.js",
+    "dev": "bun run src/engine/server.ts",
+    "test": "tsc && bun test test/*.test.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.6.2",
+    "swagger-ui-express": "^5.0.1",
+    "yamljs": "^0.3.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.10",
+    "@types/swagger-ui-express": "^4.1.7",
+    "@types/yamljs": "^0.2.34",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  }
+}

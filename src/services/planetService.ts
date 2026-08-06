@@ -1,0 +1,344 @@
+import path from 'path';
+import net from 'net';
+import { config } from '../engine/config';
+import { CliService } from './cliService';
+import { FileManager } from './fileManager';
+import { DomainService } from './domainService';
+import { buildMutex } from './mutex';
+
+export interface PlanetBuildConfig {
+  ip4?: string;
+  ip6?: string;
+  domain?: string;
+  port?: number;
+}
+
+export interface PlanetRootNode {
+  nodeId: string;
+  ip4?: string;
+  ip6?: string;
+  domain?: string;
+  port?: number;
+}
+
+export class PlanetService {
+  public static async getPlanetInfo(): Promise<any> {
+    const planetPath = path.join(config.distPath, 'planet');
+    const exists = await FileManager.fileExists(planetPath);
+
+    const ip4File = path.join(config.configPath, 'ip_addr4');
+    const ip6File = path.join(config.configPath, 'ip_addr6');
+    const domainFile = path.join(config.configPath, 'domain');
+
+    const ip4 = (await FileManager.fileExists(ip4File)) ? await FileManager.readText(ip4File) : '';
+    const ip6 = (await FileManager.fileExists(ip6File)) ? await FileManager.readText(ip6File) : '';
+    const domain = (await FileManager.fileExists(domainFile)) ? await FileManager.readText(domainFile) : '';
+
+    return {
+      planetExists: exists,
+      planetPath: exists ? planetPath : null,
+      ip4: ip4.trim(),
+      ip6: ip6.trim(),
+      domain: domain.trim(),
+      port: config.ztPort,
+      version: '2.0.5',
+      status: exists ? 'ACTIVE' : 'NOT_CONFIGURED',
+      health: exists ? 'HEALTHY' : 'UNHEALTHY',
+    };
+  }
+
+  public static async buildPlanet(options: PlanetBuildConfig): Promise<any> {
+    return buildMutex.run(() => this.buildPlanetInner(options));
+  }
+
+  private static async buildPlanetInner(options: PlanetBuildConfig): Promise<any> {
+    const port = options.port || config.ztPort;
+    const ip4 = options.ip4 || '';
+    const ip6 = options.ip6 || '';
+    const domain = options.domain || '';
+
+    // Validate inputs so arbitrary strings are never baked into world.bin.
+    if (port && (!Number.isInteger(port) || port < 1 || port > 65535)) {
+      throw new Error('Port must be an integer between 1 and 65535.');
+    }
+    if (ip4 && net.isIP(ip4) !== 4) {
+      throw new Error(`Invalid IPv4 address: '${ip4}'.`);
+    }
+    if (ip6 && net.isIP(ip6) !== 6) {
+      throw new Error(`Invalid IPv6 address: '${ip6}'.`);
+    }
+    if (domain) {
+      const trimmed = domain.trim();
+      if (trimmed.length > 253 || !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i.test(trimmed)) {
+        throw new Error(`Invalid domain name: '${domain}'.`);
+      }
+    }
+
+    // Endpoint order matters for latency: ZeroTier tries stableEndpoints in
+    // order, so put the direct public IPv4 path first (lowest-latency for
+    // gaming), then IPv6, then the domain (which adds DNS resolution).
+    const stableEndpoints: string[] = [];
+    if (ip4) stableEndpoints.push(`${ip4}/${port}`);
+    if (ip6) stableEndpoints.push(`${ip6}/${port}`);
+    if (domain) {
+      stableEndpoints.push(`${domain.trim()}/${port}`);
+    }
+
+    if (stableEndpoints.length === 0) {
+      throw new Error('At least one IPv4, IPv6, or Domain Name must be provided.');
+    }
+
+    const moonJsonPath = path.join(config.ztVarPath, 'moon.json');
+    if (!(await FileManager.fileExists(moonJsonPath))) {
+      // Auto-create an initial moon.json template if missing.
+      const initialMoonJson = {
+        id: '1000000000',
+        objtype: 'moon',
+        roots: [
+          {
+            id: '1000000000',
+            stableEndpoints,
+          },
+        ],
+        signingKey: '',
+        signingKey_secret: '',
+      };
+      await FileManager.writeJson(moonJsonPath, initialMoonJson);
+    }
+
+    const moonData = await FileManager.readJson(moonJsonPath);
+
+    // Critical: a moon.json template with empty signing keys makes genmoon fail
+    // forever (the auto-create branch is skipped once the file exists). Re-run
+    // initmoon to regenerate real keys from identity.public when they are absent.
+    if (!moonData.signingKey || !moonData.signingKey_secret) {
+      const identityPub = path.join(config.ztVarPath, 'identity.public');
+      if (!(await FileManager.fileExists(identityPub))) {
+        throw new Error(
+          'Planet build failed: moon.json has no signing keys and identity.public is missing. ' +
+            'Run identity/generate first (requires zerotier-idtool).'
+        );
+      }
+      const idTool = await this.resolveIdTool();
+      const initResult = await CliService.executeCommandArray(idTool, ['initmoon', 'identity.public'], config.ztVarPath);
+      if (!initResult.stdout) {
+        throw new Error('Planet build failed: initmoon produced no output while regenerating signing keys.');
+      }
+      await FileManager.writeText(moonJsonPath, initResult.stdout);
+      const reInit = await FileManager.readJson(moonJsonPath);
+      if (!reInit.signingKey || !reInit.signingKey_secret) {
+        throw new Error('Planet build failed: initmoon did not regenerate signing keys.');
+      }
+      moonData.id = reInit.id;
+      moonData.roots = reInit.roots;
+      moonData.signingKey = reInit.signingKey;
+      moonData.signingKey_secret = reInit.signingKey_secret;
+      moonData.objtype = reInit.objtype || 'moon';
+    }
+
+    if (moonData.roots && moonData.roots.length > 0) {
+      moonData.roots[0].stableEndpoints = stableEndpoints;
+    } else {
+      moonData.roots = [{ id: moonData.id || '1000000000', stableEndpoints }];
+    }
+
+    await FileManager.writeJson(moonJsonPath, moonData);
+
+    const idToolCmd = await this.resolveIdTool();
+    const mkMoonWorldCmd = await this.resolveMkMoonWorld();
+
+    const generatedWorldBin = path.join(config.ztVarPath, 'world.bin');
+    const targetPlanetPath = path.join(config.distPath, 'planet');
+
+    try {
+      await CliService.executeCommandArray(idToolCmd, ['genmoon', 'moon.json'], config.ztVarPath);
+      await CliService.executeCommandArray(mkMoonWorldCmd, ['moon.json'], config.ztVarPath);
+    } catch (cmdErr: any) {
+      // Honest failure: never write a placeholder and claim success when the
+      // real ZeroTier CLI tooling is unavailable (P1-1.2 / M4).
+      throw new Error(
+        `Planet build failed: ZeroTier CLI tools are required (${cmdErr.message}). ` +
+          `Install zerotier-idtool and mkmoonworld-x86_64 to build a signed planet.`
+      );
+    }
+
+    if (!(await FileManager.fileExists(generatedWorldBin))) {
+      throw new Error(
+        'Planet build failed: zerotier-idtool/mkmoonworld did not produce world.bin. Check the CLI tools installation.'
+      );
+    }
+    await FileManager.copyFile(generatedWorldBin, targetPlanetPath);
+
+    // Always overwrite address files so a rebuild with fewer fields never leaves
+    // stale values behind (consumed by getPlanetInfo and the DDNS worker).
+    await FileManager.writeText(path.join(config.configPath, 'ip_addr4'), ip4);
+    await FileManager.writeText(path.join(config.configPath, 'ip_addr6'), ip6);
+    await FileManager.writeText(path.join(config.configPath, 'domain'), domain);
+
+    // Bind the domain only after a successful build.
+    if (domain) {
+      await DomainService.bindDomain(domain, 'PLANET');
+    }
+
+    return {
+      success: true,
+      message: 'Planet built successfully.',
+      stableEndpoints,
+      planetPath: targetPlanetPath,
+    };
+  }
+
+  /** Resolve the zerotier-idtool binary path (honors config.idToolPath). */
+  public static async resolveIdTool(): Promise<string> {
+    if (config.idToolPath && (await FileManager.fileExists(config.idToolPath))) {
+      return config.idToolPath;
+    }
+    const ztVar = path.join(config.ztVarPath, 'zerotier-idtool');
+    if (await FileManager.fileExists(ztVar)) {
+      return path.join(config.ztVarPath, './zerotier-idtool');
+    }
+    const app = path.join(config.appPath, 'zerotier-idtool');
+    if (await FileManager.fileExists(app)) {
+      return app;
+    }
+    return 'zerotier-idtool';
+  }
+
+  /** Resolve the mkmoonworld binary path (honors config.mkmoonworldPath). */
+  public static async resolveMkMoonWorld(): Promise<string> {
+    if (config.mkmoonworldPath && (await FileManager.fileExists(config.mkmoonworldPath))) {
+      return config.mkmoonworldPath;
+    }
+    const ztVar = path.join(config.ztVarPath, 'mkmoonworld-x86_64');
+    if (await FileManager.fileExists(ztVar)) {
+      return path.join(config.ztVarPath, './mkmoonworld-x86_64');
+    }
+    const app = path.join(config.appPath, 'mkmoonworld-x86_64');
+    if (await FileManager.fileExists(app)) {
+      return app;
+    }
+    return 'mkmoonworld-x86_64';
+  }
+
+  /**
+   * Build a true multi-root Planet: every provided root node contributes its own
+   * stable endpoint to moon.json.roots[], then genmoon + mkmoonworld compile it.
+   * No placeholder fallback: if the CLI fails, we throw instead of faking success.
+   */
+  public static async buildMultiRootPlanet(roots: PlanetRootNode[]): Promise<any> {
+    return buildMutex.run(() => this.buildMultiRootPlanetInner(roots));
+  }
+
+  private static async buildMultiRootPlanetInner(roots: PlanetRootNode[]): Promise<any> {
+    if (!roots || roots.length === 0) {
+      throw new Error('At least one Planet root node is required.');
+    }
+
+    const rootEntries = roots.map((node) => {
+      const port = node.port || config.ztPort;
+      // IPv4-first endpoint ordering (lowest-latency path tried first).
+      const stableEndpoints: string[] = [];
+      if (node.ip4) stableEndpoints.push(`${node.ip4}/${port}`);
+      if (node.ip6) stableEndpoints.push(`${node.ip6}/${port}`);
+      if (node.domain) stableEndpoints.push(`${node.domain}/${port}`);
+      // ZeroTier root ids are 10-hex addresses; arbitrary cluster nodeIds break genmoon.
+      if (!/^[0-9a-f]{10}$/i.test(node.nodeId || '')) {
+        throw new Error(`Invalid root node id '${node.nodeId}' — ZeroTier roots require a 10-hex address.`);
+      }
+      return {
+        id: node.nodeId,
+        stableEndpoints,
+      };
+    });
+
+    if (rootEntries.some((r) => r.stableEndpoints.length === 0)) {
+      throw new Error('Each Planet root node must have at least one IPv4, IPv6, or domain endpoint.');
+    }
+
+    const moonJsonPath = path.join(config.ztVarPath, 'moon.json');
+    const moonData: any = await FileManager.readJson(moonJsonPath).catch(() => ({}));
+    moonData.objtype = 'moon';
+    moonData.roots = rootEntries;
+    await FileManager.writeJson(moonJsonPath, moonData);
+
+    const idToolCmd = await this.resolveIdTool();
+    const mkMoonWorldCmd = await this.resolveMkMoonWorld();
+
+    const generatedWorldBin = path.join(config.ztVarPath, 'world.bin');
+    const targetPlanetPath = path.join(config.distPath, 'planet');
+
+    await CliService.executeCommandArray(idToolCmd, ['genmoon', 'moon.json'], config.ztVarPath);
+    await CliService.executeCommandArray(mkMoonWorldCmd, ['moon.json'], config.ztVarPath);
+
+    if (!(await FileManager.fileExists(generatedWorldBin))) {
+      throw new Error('mkmoonworld completed but no world.bin was generated.');
+    }
+    await FileManager.copyFile(generatedWorldBin, targetPlanetPath);
+
+    return {
+      success: true,
+      message: `Unified multi-root Planet built with ${rootEntries.length} roots.`,
+      rootsCount: rootEntries.length,
+      roots: rootEntries.map((r) => ({ nodeId: r.id, stableEndpoints: r.stableEndpoints })),
+      planetPath: targetPlanetPath,
+    };
+  }
+
+  public static async deletePlanet(): Promise<any> {
+    const planetPath = path.join(config.distPath, 'planet');
+    if (await FileManager.fileExists(planetPath)) {
+      const fs = require('fs/promises');
+      await fs.unlink(planetPath);
+      return { success: true, message: 'Planet deleted successfully.' };
+    }
+    return { success: true, message: 'Planet was not found.' };
+  }
+
+  public static async importPlanet(bufferContent: Buffer): Promise<any> {
+    const planetPath = path.join(config.distPath, 'planet');
+    if (await FileManager.fileExists(planetPath)) {
+      await FileManager.copyFile(planetPath, path.join(config.distPath, 'planet.bak'));
+    }
+    const fs = require('fs/promises');
+    await fs.writeFile(planetPath, bufferContent);
+    return { success: true, message: 'External Planet imported successfully.' };
+  }
+
+  public static async validatePlanet(): Promise<any> {
+    const planetPath = path.join(config.distPath, 'planet');
+    const exists = await FileManager.fileExists(planetPath);
+    if (!exists) {
+      return { valid: false, reason: 'Planet binary file world.bin does not exist.' };
+    }
+    const fs = require('fs/promises');
+    const stats = await fs.stat(planetPath);
+    if (stats.size === 0) {
+      return { valid: false, reason: 'Planet binary file is empty.' };
+    }
+    const crypto = require('crypto');
+    const data = await fs.readFile(planetPath);
+    const checksum = crypto.createHash('sha256').update(data).digest('hex');
+    return { valid: true, planetPath, sizeBytes: stats.size, sha256: checksum };
+  }
+
+  public static getTemplates(): any {
+    return {
+      singleNode: {
+        description: 'Single-node Planet setup with single public IPv4',
+        defaultPort: 9994,
+      },
+      domainNameBinding: {
+        description: 'Domain name bound Planet setup (e.g. planet.example.com)',
+        defaultPort: 9994,
+      },
+      dualStack: {
+        description: 'Dual-stack IPv4 & IPv6 Planet setup',
+        defaultPort: 9994,
+      },
+      multiRegionHA: {
+        description: 'Multi-region High Availability Planet & Moon deployment template',
+        recommendedMoons: 2,
+      },
+    };
+  }
+}
