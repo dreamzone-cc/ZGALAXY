@@ -10,10 +10,11 @@ web-console/.svelte-kit/
 web-console/build/
 
 # Runtime config, identity keys & databases — NEVER commit live state
-config/
-!config/default.json
-data/
-zerotier-var/
+# (root-anchored so source directories named "config" are still tracked)
+/config/
+!/config/default.json
+/data/
+/zerotier-var/
 *.moon
 planet
 
