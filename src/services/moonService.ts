@@ -87,9 +87,11 @@ export class MoonService {
     await FileManager.writeJson(moonJsonPath, moonData);
     await CliService.executeCommandArray(idToolCmd, ['genmoon', 'moon.json'], config.ztVarPath);
 
-    // Deterministic selection: the generated file is named by the moon's own id,
-    // not "the first .moon in the dir" (which may be a stale artifact).
-    const generatedMoon = `${moonData.id}.moon`;
+    // Deterministic selection: the generated file is named by the moon's
+    // WORLD id formatted as 16 hex chars (a uint64), NOT the raw "id" string.
+    // genmoon emits e.g. "000000069ae38092.moon" for a world id 069ae38092.
+    const worldIdHex = BigInt('0x' + String(moonData.id)).toString(16).padStart(16, '0');
+    const generatedMoon = `${worldIdHex}.moon`;
     const srcMoon = path.join(config.ztVarPath, generatedMoon);
 
     if (await FileManager.fileExists(srcMoon)) {

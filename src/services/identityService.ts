@@ -35,11 +35,11 @@ export class IdentityService {
       }
 
       if (nodeAddress && isHexKey) {
-        const expectedAddress = crypto
-          .createHash('sha384')
-          .update(pubBytes)
-          .digest('hex')
-          .substring(0, 10);
+        // ZeroTier derives the node address from the LAST 5 bytes of SHA-384
+        // over the public key (Identity.cpp: _address.setTo(digest + 59, 5)).
+        // i.e. the last 10 hex characters of the digest — NOT the first 10.
+        const digestHex = crypto.createHash('sha384').update(pubBytes).digest('hex');
+        const expectedAddress = digestHex.substring(digestHex.length - 10);
         if (expectedAddress === nodeAddress.toLowerCase()) {
           certificateStatus = 'VALID';
           verification = { valid: true, reason: 'Identity key matches the derived ZeroTier address.' };
