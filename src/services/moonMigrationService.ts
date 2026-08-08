@@ -48,7 +48,7 @@ export class MoonMigrationService {
       }
 
       const moonData = await FileManager.readJson(moonJsonPath);
-      if (!moonData.id || !moonData.signingKey || !moonData.signingKey_secret) {
+      if (!moonData.id || !moonData.signingKey || !(moonData.signingKey_secret || moonData.signingKey_SECRET)) {
         throw new Error('moon.json is missing its identity/signing keys; create a fresh Moon first.');
       }
       if (cleanId !== moonData.id) {

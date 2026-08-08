@@ -63,10 +63,10 @@ export class MoonService {
       needsInit = true;
     } else {
       try {
-        const currentData = await FileManager.readJson(moonJsonPath);
-        if (!currentData.signingKey || !currentData.signingKey_secret) {
-          needsInit = true;
-        }
+      const currentData = await FileManager.readJson(moonJsonPath);
+      if (!currentData.signingKey || !(currentData.signingKey_secret || currentData.signingKey_SECRET)) {
+        needsInit = true;
+      }
       } catch {
         needsInit = true;
       }

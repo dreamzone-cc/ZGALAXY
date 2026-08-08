@@ -132,7 +132,10 @@ export class PlanetService {
     // Critical: a moon.json template with empty signing keys makes genmoon fail
     // forever (the auto-create branch is skipped once the file exists). Re-run
     // initmoon to regenerate real keys from identity.public when they are absent.
-    if (!moonData.signingKey || !moonData.signingKey_secret) {
+    // Note: zerotier-idtool 1.16.x emits the secret under "signingKey_SECRET"
+    // (uppercase) — accept both spellings.
+    const hasSecret = (w: any) => Boolean(w && (w.signingKey_secret || w.signingKey_SECRET));
+    if (!moonData.signingKey || !hasSecret(moonData)) {
       const identityPub = path.join(config.ztVarPath, 'identity.public');
       if (!(await FileManager.fileExists(identityPub))) {
         throw new Error(
@@ -147,13 +150,13 @@ export class PlanetService {
       }
       await FileManager.writeText(moonJsonPath, initResult.stdout);
       const reInit = await FileManager.readJson(moonJsonPath);
-      if (!reInit.signingKey || !reInit.signingKey_secret) {
+      if (!reInit.signingKey || !hasSecret(reInit)) {
         throw new Error('Planet build failed: initmoon did not regenerate signing keys.');
       }
       moonData.id = reInit.id;
       moonData.roots = reInit.roots;
       moonData.signingKey = reInit.signingKey;
-      moonData.signingKey_secret = reInit.signingKey_secret;
+      moonData.signingKey_secret = reInit.signingKey_secret || reInit.signingKey_SECRET;
       moonData.objtype = reInit.objtype || 'moon';
     }
 
