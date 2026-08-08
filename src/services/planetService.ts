@@ -1,5 +1,6 @@
 import path from 'path';
 import net from 'net';
+import dns from 'dns/promises';
 import { config } from '../engine/config';
 import { CliService } from './cliService';
 import { FileManager } from './fileManager';
@@ -74,11 +75,31 @@ export class PlanetService {
       }
     }
 
+    // Dynamic-IP handling: the ZeroTier world/moon build tools (mkmoonworld /
+    // genmoon) only keep IP endpoints and silently drop hostname endpoints.
+    // Therefore a configured domain is RESOLVED to its current A records and
+    // those IPs are injected as the stable endpoints. When the domain's IP
+    // changes (dynamic IP), a rebuild resolves it again — clients get the new
+    // IP without relying on the domain string surviving in the world file.
+    const resolvedIps: string[] = [];
+    if (domain) {
+      try {
+        const records = await dns.resolve4(domain.trim());
+        for (const r of records) {
+          if (net.isIP(r) === 4 && !resolvedIps.includes(r)) resolvedIps.push(r);
+        }
+      } catch {
+        // resolution failure is non-fatal; fall back to explicit ip4/ip6
+      }
+    }
+
     // Endpoint order matters for latency: ZeroTier tries stableEndpoints in
-    // order, so put the direct public IPv4 path first (lowest-latency for
-    // gaming), then IPv6, then the domain (which adds DNS resolution).
+    // order, so put the resolved public IPv4 path first (dynamic, current IP),
+    // then explicit IPv4/IPv6, then the domain (documentation only — dropped
+    // by the build tools, kept for tooling/debugging).
     const stableEndpoints: string[] = [];
-    if (ip4) stableEndpoints.push(`${ip4}/${port}`);
+    for (const rip of resolvedIps) stableEndpoints.push(`${rip}/${port}`);
+    if (ip4 && !resolvedIps.includes(ip4)) stableEndpoints.push(`${ip4}/${port}`);
     if (ip6) stableEndpoints.push(`${ip6}/${port}`);
     if (domain) {
       stableEndpoints.push(`${domain.trim()}/${port}`);
@@ -234,11 +255,26 @@ export class PlanetService {
       throw new Error('At least one Planet root node is required.');
     }
 
-    const rootEntries = roots.map((node) => {
+    const rootEntries = await Promise.all(
+      roots.map(async (node) => {
       const port = node.port || config.ztPort;
-      // IPv4-first endpoint ordering (lowest-latency path tried first).
+      // Dynamic-IP handling: resolve each node's domain to its current A
+      // records and use those IPs (the build tools drop hostname endpoints).
+      const resolvedIps: string[] = [];
+      if (node.domain) {
+        try {
+          const records = await dns.resolve4(node.domain.trim());
+          for (const r of records) {
+            if (net.isIP(r) === 4 && !resolvedIps.includes(r)) resolvedIps.push(r);
+          }
+        } catch {
+          // non-fatal
+        }
+      }
+      // Resolved public IPv4 first (dynamic), then explicit IPv4/IPv6, then domain.
       const stableEndpoints: string[] = [];
-      if (node.ip4) stableEndpoints.push(`${node.ip4}/${port}`);
+      for (const rip of resolvedIps) stableEndpoints.push(`${rip}/${port}`);
+      if (node.ip4 && !resolvedIps.includes(node.ip4)) stableEndpoints.push(`${node.ip4}/${port}`);
       if (node.ip6) stableEndpoints.push(`${node.ip6}/${port}`);
       if (node.domain) stableEndpoints.push(`${node.domain}/${port}`);
       // ZeroTier root ids are 10-hex addresses; arbitrary cluster nodeIds break genmoon.
@@ -249,7 +285,8 @@ export class PlanetService {
         id: node.nodeId,
         stableEndpoints,
       };
-    });
+      })
+    );
 
     if (rootEntries.some((r) => r.stableEndpoints.length === 0)) {
       throw new Error('Each Planet root node must have at least one IPv4, IPv6, or domain endpoint.');
