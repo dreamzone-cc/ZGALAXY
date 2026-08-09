@@ -75,50 +75,43 @@ bundle rebuilt.
 but the engine looked for `<id>.moon` (`069ae38092.moon`). Fixed by formatting
 the world id to 16 hex. Verified: create/delete now work.
 
-## 4. Findings from the static audit (not yet fixed)
+## 4. Findings from the static audit (status)
 
-### HIGH
-- **H1** default `admin/admin` is auto-seeded on fresh install (login works with
-  it on this server!). Recommend: force a password change on first login.
-- **H2** `identity/generate` is OPERATOR-allowed and overwrites
-  `identity.secret/public` + `moon.json` with **no backup** → irreversible
-  node-address change that breaks the mesh. Should be ADMIN-only + backup first.
-- **H3** a domain-only planet build can succeed with **zero usable endpoints**
-  if `dns.resolve4` fails (the domain string is dropped by the tools). Should
-  throw when resolution fails and no explicit IP is given.
-- **H4** `trust proxy = 1` with no reverse proxy in front → rate limits can be
-  bypassed via a spoofed `X-Forwarded-For`.
-- **H5** `/planet/download` is public and writes a placeholder file to
-  `dist/planet` when missing (anonymous write primitive).
+### HIGH — all now FIXED & verified
+- **H1** ✅ **Fixed**: default admin is no longer seeded with the well-known
+  `admin` password — a **random** initial password is generated and written to
+  `config/admin_initial_password.txt` (JSON store + SQLite store). Existing
+  deployments (like dz171) are unaffected (their credentials are preserved).
+- **H2** ✅ **Fixed**: `identity/generate` now backs up
+  `identity.public/secret` + `moon.json` to `.bak.<ts>` before overwriting,
+  uses the resolved idtool path, and returns an explicit warning that the node
+  address changes (invalidating existing clients).
+- **H3** ✅ **Fixed**: a domain-only planet build now **refuses** (throws) when
+  the domain cannot be resolved and no explicit IPv4/IPv6 is given — verified
+  live (`build` with an unresolvable domain is rejected).
+- **H4** ✅ **Fixed**: `trust proxy` is only enabled when `TRUST_PROXY=1` is
+  explicitly set (no more spoofable `X-Forwarded-For` rate-limit bypass by
+  default).
+- **H5** ✅ **Fixed**: `/planet/download` no longer writes a placeholder file on
+  anonymous requests; it returns a 404 with guidance when the planet is missing.
 
-### MODERATE
-- **M1** moon download link in the web console is broken (requires Bearer in a
-  plain link).
-- **M2** Cloudflare `GET /zones`, `/records`, `/logs` are readable by any
-  authenticated user (should be ADMIN/OP).
-- **M3** `/network/addresses` exposes internal interface topology to READ_ONLY
-  and triggers external egress (icanhazip/ipify).
-- **M4** cluster nodes are added as `ONLINE` without a probe; unreachable nodes
-  can be baked into a unified planet.
-- **M5** `buildMultiRootPlanet` lacks the signing-key self-healing of the
-  single-root build.
-- **M6** federation non-WRITE permissions are never enforced; failed handshakes
-  burn token uses before the permission check.
-- **M7** `requestedSyncMode` is unvalidated on the public handshake.
-- **M8** backup scope excludes config (users/DDNS/federation/cloudflare); import
-  trusts a client-supplied `tarPath` and legacy plaintext archives.
-- **M9** federation SSRF has a DNS-rebinding/TOCTOU window (accepted residual
-  risk, documented).
+### MODERATE — status
+- **M1** ✅ **Fixed**: moon download (`/api/v1/moons/:id/download`) is now
+  public (like the planet), fixing the broken console link. Verified: no longer
+  returns 401 without a token.
+- **M2** ✅ **Fixed**: Cloudflare `GET /zones`, `/zones/:zoneId/records`,
+  `/logs` are gated to `ADMIN/OPERATOR`. Verified: READ_ONLY gets 403.
+- **M3** ✅ **Fixed**: `/network/addresses` is gated to `ADMIN/OPERATOR`.
+  Verified: READ_ONLY gets 403.
+- **M4** ⏳ open (cluster node probe before ONLINE).
+- **M5** ⏳ open (multi-root build key self-healing).
+- **M6** ⏳ open (federation permission enforcement).
+- **M7** ⏳ open (syncMode validation).
+- **M8** ⏳ open (backup scope + import hardening).
+- **M9** ⏳ documented residual risk (DNS rebinding).
 
-### LOW
-- **L1** token-length timing leak in `secretsEqual`. **L2** validation errors
-  return 500 instead of 400. **L3** `/planet/regenerate` duplicates `/build`.
-  **L4** Cloudflare `mode` flag is dead. **L5** domain/endpoint validation is
-  loose (`a..b` accepted). **L6** federation token inputs unvalidated.
-  **L7** dead code (`importPlanet`, `executeBinary`, `mode`).
-  **L8** hardcoded versions (2.0.5 / 1.3.0). **L9** `stdout||stderr` write in
-  moon init. **L10** endpoint validation weak. **L11** CORS_ORIGINS empty by
-  default in production.
+### LOW — open (minor)
+L1–L11 as listed in the previous audit (cosmetic/hardening).
 
 ## 5. Verified correct (static + live)
 
@@ -139,11 +132,24 @@ leak); secret masking in all responses.
 | local (`5b07896437`) | Client | ✅ online; network OK; native dynamic-DNS layer active |
 | 192.168.1.5 (`c1aa29b20e`) | Client | ⚠️ **offline** (device not responding on LAN) |
 
-## 7. Recommended follow-ups (priority)
+## 7. Recommended follow-ups (remaining)
 
-1. Force admin password change / remove the seeded default credential (H1).
-2. Restrict `identity/generate` to ADMIN + back up before overwrite (H2).
-3. Harden the domain-only build (H3) and reverse-proxy note (H4/H11).
-4. Fix moon download in the console (M1) and gate Cloudflare/network reads (M2/M3).
-5. Rotate secrets (GitHub token, Cloudflare `cfat_…`).
-6. Optionally validate from a truly external client (VPS).
+1. **M4** — probe cluster nodes before marking them ONLINE.
+2. **M5** — add signing-key self-healing to `buildMultiRootPlanet`.
+3. **M6/M7** — enforce federation permissions and validate `syncMode`.
+4. **M8** — widen backup scope and harden import path handling.
+5. **L2** — return 400 (not 500) for validation errors.
+6. Rotate secrets (GitHub token, Cloudflare `cfat_…`).
+7. Optionally validate from a truly external client (VPS).
+
+## 8. Fixes applied in this pass (all rebuilt + deployed on dz171)
+
+- **H1–H5, M1–M3** (§4) — source changes in `app.ts`, `planet.router.ts`,
+  `cloudflare.router.ts`, `network.router.ts`, `userService.ts`,
+  `sqliteStore.ts`, `identityService.ts`, `planetService.ts`.
+- The engine bundle was rebuilt (`bun build --compile …`) and the service
+  restarted; `tsc --noEmit` passes.
+- **Regression verified after deploy**: `ready`/`health`/`planet/download` all
+  200; the web console (5173) 200; clients dz20 + local ONLINE with the network
+  OK; ztnet controller up; `planet/build` succeeds for the real domain and is
+  rejected for an unresolvable domain.
