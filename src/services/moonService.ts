@@ -42,17 +42,19 @@ export class MoonService {
     if (!req.endpoints || !Array.isArray(req.endpoints) || req.endpoints.length === 0) {
       throw new Error('Endpoints array cannot be empty for Moon creation.');
     }
-    // Validate each endpoint as <host-or-ip>:<port> (L10).
-    const endpointRe = /^[A-Za-z0-9.-]+:\d{1,5}$/;
+    // Validate each endpoint as <host-or-ip>/<port> (ZeroTier style) — also
+    // accept host:port for convenience (L10).
+    const endpointRe = /^[A-Za-z0-9.-]+[\/:]\d{1,5}$/;
     for (const ep of req.endpoints) {
       if (typeof ep !== 'string' || !ep.trim() || ep.length > 512) {
         throw new Error(`Invalid Moon endpoint: '${ep}'.`);
       }
       const m = endpointRe.exec(ep.trim());
       if (!m) {
-        throw new Error(`Invalid Moon endpoint format '${ep}' (expected host:port).`);
+        throw new Error(`Invalid Moon endpoint format '${ep}' (expected host/port).`);
       }
-      const port = Number(m[1]);
+      const sep = ep.trim().lastIndexOf('/') >= 0 ? '/' : ':';
+      const port = Number(ep.trim().split(sep).pop());
       if (!Number.isInteger(port) || port < 1 || port > 65535) {
         throw new Error(`Invalid Moon endpoint port in '${ep}' (1-65535).`);
       }
