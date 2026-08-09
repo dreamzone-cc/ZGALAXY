@@ -88,22 +88,49 @@ export class FederationTokenService {
       throw new Error('Token name is required.');
     }
 
+    const ALLOWED_PERMS: FederationPermission[] = ['READ', 'WRITE', 'PLANET_SYNC', 'MOON_SYNC'];
+    const ALLOWED_MODES: SyncMode[] = ['FEDERATION_INHERITED', 'DIRECT_ISOLATED'];
+
+    let permissions = input.permissions || ALLOWED_PERMS;
+    if (!Array.isArray(permissions) || permissions.length === 0 || permissions.some((p) => !ALLOWED_PERMS.includes(p))) {
+      throw new Error(`Invalid permissions. Allowed: ${ALLOWED_PERMS.join(', ')}.`);
+    }
+
+    let syncMode = input.syncMode || 'FEDERATION_INHERITED';
+    if (!ALLOWED_MODES.includes(syncMode)) {
+      throw new Error(`Invalid syncMode. Allowed: ${ALLOWED_MODES.join(', ')}.`);
+    }
+
+    let maxUses = input.maxUses !== undefined ? input.maxUses : 100;
+    if (!Number.isInteger(maxUses) || maxUses < 0) {
+      throw new Error('maxUses must be a non-negative integer (0 = unlimited).');
+    }
+
+    let days = input.expiresInDays || 365;
+    if (!Number.isInteger(days) || days <= 0 || days > 3650) {
+      throw new Error('expiresInDays must be an integer between 1 and 3650.');
+    }
+
+    const creator = (input.creator && input.creator.trim()) || 'admin';
+    if (creator.length > 64) {
+      throw new Error('creator is too long.');
+    }
+
     const store = await this.loadTokensStore();
 
     const tokenId = `ftok_${crypto.randomBytes(6).toString('hex')}`;
     const tokenSecret = `zgt_fed_sec_${crypto.randomBytes(18).toString('hex')}`;
 
-    const days = input.expiresInDays && input.expiresInDays > 0 ? input.expiresInDays : 365;
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 
     const newToken: FederationToken = {
       tokenId,
       tokenSecret,
       name: input.name.trim(),
-      creator: input.creator || 'admin',
-      syncMode: input.syncMode || 'FEDERATION_INHERITED',
-      permissions: input.permissions || ['READ', 'WRITE', 'PLANET_SYNC', 'MOON_SYNC'],
-      maxUses: input.maxUses !== undefined ? input.maxUses : 100,
+      creator,
+      syncMode,
+      permissions,
+      maxUses,
       usedCount: 0,
       expiresAt,
       status: 'ACTIVE',
@@ -124,7 +151,7 @@ export class FederationTokenService {
     return result;
   }
 
-  public static async validateToken(tokenSecret: string): Promise<{ valid: boolean; token?: FederationToken; error?: string }> {
+  public static async validateToken(tokenSecret: string, requirePermission?: string): Promise<{ valid: boolean; token?: FederationToken; error?: string }> {
     if (!tokenSecret || tokenSecret.trim().length === 0) {
       return { valid: false, error: 'Token secret is required.' };
     }
@@ -150,6 +177,14 @@ export class FederationTokenService {
 
       if (token.maxUses > 0 && token.usedCount >= token.maxUses) {
         return { valid: false, error: 'Federation Token has reached maximum allowed uses limit.' };
+      }
+
+      // Permission check happens BEFORE consuming a use, so a failed handshake
+      // (e.g. missing WRITE) never burns a token use (M6).
+      if (requirePermission) {
+        if (!Array.isArray(token.permissions) || !(token.permissions as string[]).includes(requirePermission)) {
+          return { valid: false, error: `Federation Token lacks required permission: ${requirePermission}.` };
+        }
       }
 
       // Check-and-increment is now atomic under the serialized mutex.

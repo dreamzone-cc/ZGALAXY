@@ -222,19 +222,23 @@ export class FederationPeerService {
       throw new Error('Too many handshake attempts from this source. Please try again later.');
     }
 
-    const tokenResult = await FederationTokenService.validateToken(payload.tokenSecret);
+    const tokenResult = await FederationTokenService.validateToken(payload.tokenSecret, 'WRITE');
     if (!tokenResult.valid || !tokenResult.token) {
       throw new Error(`Federation Handshake Failed: ${tokenResult.error}`);
     }
 
     const token = tokenResult.token;
-    const effectiveSyncMode: SyncMode = payload.requestedSyncMode || token.syncMode || 'FEDERATION_INHERITED';
-    const isTransitive = effectiveSyncMode === 'FEDERATION_INHERITED';
 
-    // Registering a peer is a state-changing (topology) operation: require WRITE.
-    if (!Array.isArray(token.permissions) || !token.permissions.includes('WRITE')) {
-      throw new Error('Federation Token does not have WRITE permission for peer registration.');
+    // Validate a caller-supplied sync mode (M7): only the two known modes are
+    // accepted; a garbage value would otherwise be persisted as-is.
+    const requestedMode = payload.requestedSyncMode as string | undefined;
+    if (requestedMode && requestedMode !== 'FEDERATION_INHERITED' && requestedMode !== 'DIRECT_ISOLATED') {
+      throw new Error(
+        `Invalid requestedSyncMode '${requestedMode}'. Allowed: FEDERATION_INHERITED, DIRECT_ISOLATED.`
+      );
     }
+    const effectiveSyncMode: SyncMode = (requestedMode || token.syncMode || 'FEDERATION_INHERITED') as SyncMode;
+    const isTransitive = effectiveSyncMode === 'FEDERATION_INHERITED';
 
     const topology = await this.getPeerTopology();
 

@@ -34,14 +34,15 @@ if (process.env.TRUST_PROXY === '1') {
 }
 
 // CORS: allow only known origins (configurable via CORS_ORIGINS, comma-separated).
-// localhost dev origins are only appended outside production.
-const allowedOrigins = (process.env.CORS_ORIGINS || '')
+// If not configured, default to the standard web-console origins so a fresh
+// production deploy works out of the box; an explicit CORS_ORIGINS always wins.
+const configuredOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
   .filter((o) => o.length > 0);
-if (process.env.NODE_ENV !== 'production') {
-  allowedOrigins.push('http://localhost:5173', 'http://127.0.0.1:5173');
-}
+const allowedOrigins = configuredOrigins.length > 0
+  ? configuredOrigins
+  : ['http://localhost:5173', 'http://127.0.0.1:5173'];
 
 app.use(
   cors({
@@ -114,11 +115,12 @@ app.use('/api/v1/federation/handshake', handshakeLimiter);
 app.use('/api/v1/federation/join', joinLimiter);
 
 // Constant-time comparison for the super-admin secret.
+// Both values are hashed to a fixed length first so the comparison does not
+// leak the secret's length through an early return (L1).
 function secretsEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
+  const ha = crypto.createHash('sha256').update(a).digest();
+  const hb = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(ha, hb);
 }
 
 // Public routes that bypass authentication

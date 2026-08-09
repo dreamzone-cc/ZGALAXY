@@ -3,6 +3,7 @@ import { config } from '../config';
 import { FileManager } from '../../services/fileManager';
 import { PlanetService } from '../../services/planetService';
 import path from 'path';
+import pkg from '../../../package.json';
 
 export const systemRouter = Router();
 
@@ -11,7 +12,7 @@ systemRouter.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: '1.3.0',
+    version: pkg.version,
     service: 'ZGalaxy Planet/Moon Infrastructure Engine',
   });
 });

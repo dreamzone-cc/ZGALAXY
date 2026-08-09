@@ -29,17 +29,4 @@ export class CliService {
       throw new Error(`Command ${kind} [${program} ${args.join(' ')}]: ${error.stderr || error.message}`);
     }
   }
-
-  /**
-   * Execute a binary with execFile semantics (no shell). Retained for callers
-   * that already pass an absolute binary path.
-   */
-  public static async executeBinary(
-    binaryPath: string,
-    args: string[],
-    cwd?: string,
-    timeoutMs: number = DEFAULT_TIMEOUT_MS
-  ): Promise<{ stdout: string; stderr: string }> {
-    return this.executeCommandArray(binaryPath, args, cwd, timeoutMs);
-  }
 }

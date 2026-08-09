@@ -30,7 +30,7 @@ clusterRouter.post('/nodes/add', requireRole('ADMIN', 'OPERATOR'), async (req: R
       ip6: ip6 || '',
       domain: domain || '',
       port: port || 9994,
-      status: 'ONLINE',
+      // status is probed inside addNode (no caller-supplied ONLINE).
       isLocal: !!isLocal,
     });
 

@@ -110,6 +110,12 @@ export class CloudflareService {
       return { synced: false, message: 'Cloudflare auto-sync is disabled.', ip: '' };
     }
 
+    // Honor the mode flag (L4): in MANUAL mode the periodic worker does NOT
+    // touch public DNS — only an explicit (forced) /sync may run.
+    if (cfg.mode === 'MANUAL' && !force) {
+      return { synced: false, message: 'Cloudflare sync mode is MANUAL; skipped auto-sync.', ip: '' };
+    }
+
     if (!cfg.apiToken) {
       const msg = 'Cloudflare API Token is not configured.';
       await this.addLog('ERROR', '', cfg.recordName || cfg.zoneName || 'N/A', msg);

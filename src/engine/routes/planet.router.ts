@@ -40,17 +40,27 @@ planetRouter.post('/build', requireRole('ADMIN', 'OPERATOR'), async (req, res, n
   try {
     const result = await PlanetService.buildPlanet(req.body);
     res.json(result);
-  } catch (err) {
-    next(err);
+  } catch (err: any) {
+    // Build failures are client/operator-correctable (invalid input, DNS
+    // resolution, missing CLI tools) — surface as 400, not a generic 500 (L2).
+    res.status(400).json({ success: false, error: err?.message || 'Planet build failed.' });
   }
 });
 
+// Rebuild the planet from the CURRENT stored endpoints (domain/ip4/ip6 as
+// configured), not from a fresh request body (L3).
 planetRouter.post('/regenerate', requireRole('ADMIN', 'OPERATOR'), async (req, res, next) => {
   try {
-    const result = await PlanetService.buildPlanet(req.body);
+    const info = await PlanetService.getPlanetInfo();
+    const result = await PlanetService.buildPlanet({
+      domain: info.domain || undefined,
+      ip4: info.ip4 || undefined,
+      ip6: info.ip6 || undefined,
+      port: info.port,
+    });
     res.json(result);
-  } catch (err) {
-    next(err);
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err?.message || 'Planet regenerate failed.' });
   }
 });
 

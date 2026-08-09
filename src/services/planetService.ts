@@ -6,6 +6,7 @@ import { CliService } from './cliService';
 import { FileManager } from './fileManager';
 import { DomainService } from './domainService';
 import { buildMutex } from './mutex';
+import pkg from '../../package.json';
 
 export interface PlanetBuildConfig {
   ip4?: string;
@@ -42,7 +43,7 @@ export class PlanetService {
       ip6: ip6.trim(),
       domain: domain.trim(),
       port: config.ztPort,
-      version: '2.0.5',
+      version: pkg.version,
       status: exists ? 'ACTIVE' : 'NOT_CONFIGURED',
       health: exists ? 'HEALTHY' : 'UNHEALTHY',
     };
@@ -70,7 +71,12 @@ export class PlanetService {
     }
     if (domain) {
       const trimmed = domain.trim();
-      if (trimmed.length > 253 || !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i.test(trimmed)) {
+      // Stricter hostname check: each label must not start/end with '-', no
+      // empty labels ('a..b'), max 253 chars (L5).
+      if (
+        trimmed.length > 253 ||
+        !/^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)*$/i.test(trimmed)
+      ) {
         throw new Error(`Invalid domain name: '${domain}'.`);
       }
     }
@@ -138,38 +144,7 @@ export class PlanetService {
       await FileManager.writeJson(moonJsonPath, initialMoonJson);
     }
 
-    const moonData = await FileManager.readJson(moonJsonPath);
-
-    // Critical: a moon.json template with empty signing keys makes genmoon fail
-    // forever (the auto-create branch is skipped once the file exists). Re-run
-    // initmoon to regenerate real keys from identity.public when they are absent.
-    // Note: zerotier-idtool 1.16.x emits the secret under "signingKey_SECRET"
-    // (uppercase) — accept both spellings.
-    const hasSecret = (w: any) => Boolean(w && (w.signingKey_secret || w.signingKey_SECRET));
-    if (!moonData.signingKey || !hasSecret(moonData)) {
-      const identityPub = path.join(config.ztVarPath, 'identity.public');
-      if (!(await FileManager.fileExists(identityPub))) {
-        throw new Error(
-          'Planet build failed: moon.json has no signing keys and identity.public is missing. ' +
-            'Run identity/generate first (requires zerotier-idtool).'
-        );
-      }
-      const idTool = await this.resolveIdTool();
-      const initResult = await CliService.executeCommandArray(idTool, ['initmoon', 'identity.public'], config.ztVarPath);
-      if (!initResult.stdout) {
-        throw new Error('Planet build failed: initmoon produced no output while regenerating signing keys.');
-      }
-      await FileManager.writeText(moonJsonPath, initResult.stdout);
-      const reInit = await FileManager.readJson(moonJsonPath);
-      if (!reInit.signingKey || !hasSecret(reInit)) {
-        throw new Error('Planet build failed: initmoon did not regenerate signing keys.');
-      }
-      moonData.id = reInit.id;
-      moonData.roots = reInit.roots;
-      moonData.signingKey = reInit.signingKey;
-      moonData.signingKey_secret = reInit.signingKey_secret || reInit.signingKey_SECRET;
-      moonData.objtype = reInit.objtype || 'moon';
-    }
+    const moonData = await this.ensureMoonJsonKeys();
 
     if (moonData.roots && moonData.roots.length > 0) {
       moonData.roots[0].stableEndpoints = stableEndpoints;
@@ -221,6 +196,45 @@ export class PlanetService {
       stableEndpoints,
       planetPath: targetPlanetPath,
     };
+  }
+
+  /**
+   * Ensure moon.json carries valid signing keys, running initmoon to
+   * regenerate real keys from identity.public when they are missing.
+   *
+   * Critical: a key-less moon.json template makes genmoon fail forever, so this
+   * self-healing MUST run before any genmoon/mkmoonworld call — both for the
+   * single-root and the multi-root planet build.
+   * Note: zerotier-idtool 1.16.x emits the secret under "signingKey_SECRET"
+   * (uppercase) — both spellings are accepted.
+   *
+   * @return The (possibly regenerated) moon.json content.
+   */
+  private static async ensureMoonJsonKeys(): Promise<any> {
+    const moonJsonPath = path.join(config.ztVarPath, 'moon.json');
+    let moonData = await FileManager.readJson(moonJsonPath).catch(() => ({}));
+    const hasSecret = (w: any) => Boolean(w && (w.signingKey_secret || w.signingKey_SECRET));
+    if (!moonData.signingKey || !hasSecret(moonData)) {
+      const identityPub = path.join(config.ztVarPath, 'identity.public');
+      if (!(await FileManager.fileExists(identityPub))) {
+        throw new Error(
+          'Planet build failed: moon.json has no signing keys and identity.public is missing. ' +
+            'Run identity/generate first (requires zerotier-idtool).'
+        );
+      }
+      const idTool = await this.resolveIdTool();
+      const initResult = await CliService.executeCommandArray(idTool, ['initmoon', 'identity.public'], config.ztVarPath);
+      if (!initResult.stdout) {
+        throw new Error('Planet build failed: initmoon produced no output while regenerating signing keys.');
+      }
+      await FileManager.writeText(moonJsonPath, initResult.stdout);
+      const reInit = await FileManager.readJson(moonJsonPath);
+      if (!reInit.signingKey || !hasSecret(reInit)) {
+        throw new Error('Planet build failed: initmoon did not regenerate signing keys.');
+      }
+      moonData = reInit;
+    }
+    return moonData;
   }
 
   /** Resolve the zerotier-idtool binary path (honors config.idToolPath). */
@@ -307,7 +321,9 @@ export class PlanetService {
     }
 
     const moonJsonPath = path.join(config.ztVarPath, 'moon.json');
-    const moonData: any = await FileManager.readJson(moonJsonPath).catch(() => ({}));
+    // Same signing-key self-healing as the single-root build (M5): a key-less
+    // moon.json makes genmoon fail forever, so ensure keys first.
+    const moonData: any = await this.ensureMoonJsonKeys();
     moonData.objtype = 'moon';
     moonData.roots = rootEntries;
     await FileManager.writeJson(moonJsonPath, moonData);
@@ -343,16 +359,6 @@ export class PlanetService {
       return { success: true, message: 'Planet deleted successfully.' };
     }
     return { success: true, message: 'Planet was not found.' };
-  }
-
-  public static async importPlanet(bufferContent: Buffer): Promise<any> {
-    const planetPath = path.join(config.distPath, 'planet');
-    if (await FileManager.fileExists(planetPath)) {
-      await FileManager.copyFile(planetPath, path.join(config.distPath, 'planet.bak'));
-    }
-    const fs = require('fs/promises');
-    await fs.writeFile(planetPath, bufferContent);
-    return { success: true, message: 'External Planet imported successfully.' };
   }
 
   public static async validatePlanet(): Promise<any> {

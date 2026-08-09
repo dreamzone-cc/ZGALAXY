@@ -19,11 +19,10 @@ function deriveKey(): Buffer {
 
 export class BackupService {
   public static async exportBackup(): Promise<any> {
-    const backupDir = config.ztVarPath;
     const archivePath = path.join(config.configPath, 'zerotier_backup.tar.gz');
 
-    if (!(await FileManager.fileExists(backupDir))) {
-      throw new Error(`ZeroTier data directory does not exist at ${backupDir}`);
+    if (!(await FileManager.fileExists(config.ztVarPath))) {
+      throw new Error(`ZeroTier data directory does not exist at ${config.ztVarPath}`);
     }
 
     if (!process.env.BACKUP_PASSPHRASE) {
@@ -33,10 +32,25 @@ export class BackupService {
       );
     }
 
+    // Preserve structure so a restore is complete (M8): the archive contains a
+    // top-level "zt/" dir (ZeroTier data) AND a "cfg/" dir (engine config —
+    // users, sessions, cluster, federation, DDNS, Cloudflare, domains).
+    const ztParent = path.dirname(config.ztVarPath);
+    const cfgParent = path.dirname(config.configPath);
     // --warning=no-file-changed tolerates live files changing mid-archive.
     await CliService.executeCommandArray(
       'tar',
-      ['--warning=no-file-changed', '-czf', archivePath, '-C', backupDir, '.'],
+      [
+        '--warning=no-file-changed',
+        '-czf',
+        archivePath,
+        '-C',
+        ztParent,
+        path.basename(config.ztVarPath),
+        '-C',
+        cfgParent,
+        path.basename(config.configPath),
+      ],
       undefined,
       60_000
     );
@@ -64,20 +78,28 @@ export class BackupService {
       throw new Error('Backup file path is required.');
     }
     const resolvedTar = path.resolve(tarPath);
+    // Hardening (M8): only restore archives from the server-controlled config
+    // directory (where export writes them) — never an arbitrary client path.
+    if (!resolvedTar.startsWith(path.resolve(config.configPath) + path.sep)) {
+      throw new Error('Backup file must reside under the server config directory.');
+    }
     if (!(await FileManager.fileExists(resolvedTar))) {
       throw new Error(`Backup file not found at ${resolvedTar}`);
     }
 
     let decrypted = false;
-    const tmpArchive = path.join(config.configPath, `.backup_restore_${process.pid}_${Date.now()}.tar.gz`);
+    const stamp = `${process.pid}_${Date.now()}`;
+    const staging = path.join(config.configPath, `.backup_restore_${stamp}`);
+    const tmpArchive = `${staging}.tar.gz`;
 
     try {
+      await fs.promises.mkdir(staging, { recursive: true });
+
       const header = Buffer.alloc(HEADER_LEN);
       const fh = await fs.promises.open(resolvedTar, 'r');
       try {
         const { bytesRead } = await fh.read(header, 0, HEADER_LEN, 0);
         if (bytesRead === HEADER_LEN && header.subarray(0, 4).equals(MAGIC)) {
-          // Encrypted (or legacy JSON) format.
           if (header[4] !== VERSION) {
             throw new Error(`Unsupported encrypted backup version: ${header[4]}`);
           }
@@ -103,13 +125,25 @@ export class BackupService {
         throw new Error('Backup file is not a valid gzip archive.');
       }
 
-      const backupDir = config.ztVarPath;
       await CliService.executeCommandArray(
         'tar',
-        ['--no-same-owner', '--no-same-permissions', '-xzf', tmpArchive, '-C', backupDir],
+        ['--no-same-owner', '--no-same-permissions', '-xzf', tmpArchive, '-C', staging],
         undefined,
         60_000
       );
+
+      // New format: top-level "zt/" and "cfg/" dirs. Legacy format: contents at
+      // the archive root (restored to ztVarPath only).
+      const ztDir = path.join(staging, path.basename(config.ztVarPath));
+      const cfgDir = path.join(staging, path.basename(config.configPath));
+      if (fs.existsSync(ztDir)) {
+        await this.restoreTree(ztDir, config.ztVarPath);
+        if (fs.existsSync(cfgDir)) {
+          await this.restoreTree(cfgDir, config.configPath);
+        }
+      } else {
+        await this.restoreTree(staging, config.ztVarPath);
+      }
 
       const checksum = crypto.createHash('sha256').update(await fs.promises.readFile(tmpArchive)).digest('hex');
       return {
@@ -119,7 +153,23 @@ export class BackupService {
         checksumSha256: checksum,
       };
     } finally {
+      await fs.promises.rm(staging, { recursive: true, force: true }).catch(() => {});
       await fs.promises.unlink(tmpArchive).catch(() => {});
+    }
+  }
+
+  /** Recursively copy a staged tree into a destination directory. */
+  private static async restoreTree(srcDir: string, destDir: string): Promise<void> {
+    await fs.promises.mkdir(destDir, { recursive: true });
+    const entries = await fs.promises.readdir(srcDir, { withFileTypes: true });
+    for (const e of entries) {
+      const s = path.join(srcDir, e.name);
+      const d = path.join(destDir, e.name);
+      if (e.isDirectory()) {
+        await this.restoreTree(s, d);
+      } else {
+        await fs.promises.copyFile(s, d);
+      }
     }
   }
 

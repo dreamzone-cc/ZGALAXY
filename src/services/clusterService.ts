@@ -53,7 +53,7 @@ export class ClusterService {
   }
 
   /** Real reachability probe against a node's HTTP API health endpoint. */
-  private static async probeNodeHealth(node: ClusterNode, timeoutMs = 3000): Promise<boolean> {
+  private static async probeNodeHealth(node: Omit<ClusterNode, 'lastSyncedAt' | 'status'>, timeoutMs = 3000): Promise<boolean> {
     if (node.isLocal) {
       const localInfo = await PlanetService.getPlanetInfo();
       return localInfo.planetExists === true;
@@ -116,7 +116,7 @@ export class ClusterService {
     return this.sanitize(await this.loadRawTopology());
   }
 
-  public static async addNode(node: Omit<ClusterNode, 'lastSyncedAt'>): Promise<any> {
+  public static async addNode(node: Omit<ClusterNode, 'lastSyncedAt' | 'status'>): Promise<any> {
     if (!node.nodeId || !/^[A-Za-z0-9_.-]{1,64}$/.test(node.nodeId)) {
       throw new Error(`Invalid cluster node id: '${node.nodeId}'.`);
     }
@@ -138,8 +138,20 @@ export class ClusterService {
     // overwrite unrelated entries).
     const existingIndex = topology.nodes.findIndex((n) => n.nodeId === node.nodeId);
 
+    // Never trust a caller-supplied status: probe the node for real
+    // reachability so a just-added unreachable node cannot be baked into a
+    // unified planet as if it were ONLINE.
+    let probedStatus: ClusterNode['status'];
+    if (node.isLocal) {
+      const localInfo = await PlanetService.getPlanetInfo();
+      probedStatus = localInfo.planetExists ? 'ONLINE' : 'OFFLINE';
+    } else {
+      probedStatus = (await this.probeNodeHealth(node)) ? 'ONLINE' : 'OFFLINE';
+    }
+
     const newNode: ClusterNode = {
       ...node,
+      status: probedStatus,
       lastSyncedAt: new Date().toISOString(),
     };
 
