@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { config } from '../engine/config';
 import { CliService } from './cliService';
 import { FileManager } from './fileManager';
+import { PlanetService } from './planetService';
 
 export class IdentityService {
   public static async getIdentityStatus(): Promise<any> {
@@ -69,14 +70,29 @@ export class IdentityService {
   }
 
   public static async generateIdentity(): Promise<any> {
+    // Safety: back up the current identity files and moon.json before
+    // overwriting. Regenerating changes the ZeroTier node address, which
+    // invalidates every client/planet that references the old address — the
+    // backup makes the operation reversible.
+    const publicIdPath = path.join(config.ztVarPath, 'identity.public');
+    const secretIdPath = path.join(config.ztVarPath, 'identity.secret');
+    const moonJsonPath = path.join(config.ztVarPath, 'moon.json');
+    const stamp = Date.now();
+    for (const p of [publicIdPath, secretIdPath, moonJsonPath]) {
+      if (await FileManager.fileExists(p)) {
+        await FileManager.copyFile(p, `${p}.bak.${stamp}`);
+      }
+    }
+
+    const idTool = await PlanetService.resolveIdTool();
     await CliService.executeCommandArray(
-      './zerotier-idtool',
+      idTool,
       ['generate', 'identity.secret', 'identity.public'],
       config.ztVarPath
     );
 
     const initResult = await CliService.executeCommandArray(
-      './zerotier-idtool',
+      idTool,
       ['initmoon', 'identity.public'],
       config.ztVarPath
     );
@@ -85,7 +101,8 @@ export class IdentityService {
     const status = await this.getIdentityStatus();
     return {
       success: true,
-      message: 'New identity and moon.json initialized.',
+      message:
+        'New identity and moon.json initialized. WARNING: the node address changed and existing clients/planet references to the previous address are now invalid. A backup was saved as identity.*.bak.<ts> / moon.json.bak.<ts>.',
       ...status,
     };
   }

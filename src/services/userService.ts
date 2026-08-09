@@ -127,16 +127,24 @@ export class UserService {
     if (await FileManager.fileExists(filePath)) {
       return await FileManager.readJson<UserRecord[]>(filePath);
     }
-    // Initialize default admin user if file doesn't exist
+    // Initialize default admin user if file doesn't exist.
+    // The initial password is RANDOM (never the well-known default) and is
+    // written to a bootstrap file the operator must read and rotate.
     const defaultSalt = crypto.randomBytes(16).toString('hex');
+    const initialPassword = crypto.randomBytes(18).toString('base64url');
     const defaultAdmin: UserRecord = {
       username: 'admin',
-      passwordHash: await this.hashPassword('admin', defaultSalt, PBKDF2_ITERATIONS),
+      passwordHash: await this.hashPassword(initialPassword, defaultSalt, PBKDF2_ITERATIONS),
       salt: defaultSalt,
       role: 'ADMIN',
       createdAt: new Date().toISOString(),
     };
     await FileManager.writeJson(filePath, [defaultAdmin]);
+    const bootstrapFile = path.join(path.dirname(filePath), 'admin_initial_password.txt');
+    await FileManager.writeText(
+      bootstrapFile,
+      `ZGALAXY default admin created.\nusername: admin\npassword: ${initialPassword}\nCHANGE THIS PASSWORD IMMEDIATELY (then delete this file).\n`
+    );
     return [defaultAdmin];
   }
 

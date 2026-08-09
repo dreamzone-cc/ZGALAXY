@@ -25,9 +25,13 @@ export const app = express();
 
 app.disable('x-powered-by');
 
-// Trust one hop behind a reverse proxy so rate limiting keys on the real client
-// IP and express-rate-limit does not throw ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
-app.set('trust proxy', 1);
+// Trust one hop behind a reverse proxy ONLY when explicitly configured
+// (TRUST_PROXY=1). Without a real reverse proxy in front, trusting
+// X-Forwarded-For would let direct clients spoof their IP and bypass the
+// rate limiters.
+if (process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
 
 // CORS: allow only known origins (configurable via CORS_ORIGINS, comma-separated).
 // localhost dev origins are only appended outside production.
@@ -127,6 +131,9 @@ const isPublicPath = (reqPath: string): boolean => {
     normalized === '/api/v1/auth/login' ||
     normalized === '/api/v1/federation/handshake' ||
     normalized === '/api/v1/planet/download' ||
+    // Moon files are world artifacts (like the planet) and are fetched by
+    // clients via plain links, so the download endpoint is public.
+    (normalized.startsWith('/api/v1/moons/') && normalized.endsWith('/download')) ||
     normalized.startsWith('/api/docs')
   );
 };

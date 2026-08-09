@@ -109,6 +109,17 @@ export class PlanetService {
       throw new Error('At least one IPv4, IPv6, or Domain Name must be provided.');
     }
 
+    // Honest failure: if the domain did NOT resolve and no explicit IPv4/IPv6
+    // was given, the only stable endpoint is the hostname string, which the
+    // ZeroTier build tools drop — the resulting planet would have NO reachable
+    // root and every client would fail. Refuse instead of building silently.
+    if (resolvedIps.length === 0 && !ip4 && !ip6) {
+      throw new Error(
+        `Domain '${domain}' could not be resolved to any IP and no explicit IPv4/IPv6 was provided. ` +
+          `ZeroTier build tools drop hostname endpoints, so the planet would have no reachable root.`
+      );
+    }
+
     const moonJsonPath = path.join(config.ztVarPath, 'moon.json');
     if (!(await FileManager.fileExists(moonJsonPath))) {
       // Auto-create an initial moon.json template if missing.

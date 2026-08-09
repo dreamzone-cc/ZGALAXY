@@ -22,11 +22,12 @@ planetRouter.get('/download', async (req, res, next) => {
     const exists = await FileManager.fileExists(planetPath);
 
     if (!exists) {
-      // Create planet file if missing to ensure smooth download
-      await FileManager.writeText(
-        planetPath,
-        '# ZeroTier ZGalaxy Planet Binary File Placeholder\n# Please build planet via /api/v1/planet/build'
-      );
+      // Never write a placeholder on an anonymous request (no unauthenticated
+      // write primitive). Tell the operator how to build the planet instead.
+      return res.status(404).json({
+        success: false,
+        error: 'Planet not built yet. Call POST /api/v1/planet/build (or configure DDNS auto-rebuild) first.',
+      });
     }
 
     res.download(planetPath, 'planet');

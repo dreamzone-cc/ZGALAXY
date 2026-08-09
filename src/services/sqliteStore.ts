@@ -110,12 +110,25 @@ async function migrateLegacyJson(): Promise<void> {
         console.warn('[ZGALAXY SQLITE] Failed to import users.json:', (e as Error).message);
       }
     } else {
-      // Seed the same default admin the JSON store would create.
+      // Seed the same default admin the JSON store would create, but with a
+      // RANDOM initial password written to a bootstrap file (never the
+      // well-known default).
       const salt = crypto.randomBytes(16).toString('hex');
+      const initialPassword = crypto.randomBytes(18).toString('base64url');
       const hash = crypto
-        .pbkdf2Sync('admin', salt, 210000, 64, 'sha512')
+        .pbkdf2Sync(initialPassword, salt, 210000, 64, 'sha512')
         .toString('hex');
       insertUser.run('admin', hash, salt, 'ADMIN', new Date().toISOString(), null);
+      try {
+        const bootstrapFile = path.join(config.configPath, 'admin_initial_password.txt');
+        fs.writeFileSync(
+          bootstrapFile,
+          `ZGALAXY default admin created.\nusername: admin\npassword: ${initialPassword}\nCHANGE THIS PASSWORD IMMEDIATELY (then delete this file).\n`,
+          { mode: 0o600 }
+        );
+      } catch (e) {
+        console.warn('[ZGALAXY SQLITE] Could not write admin bootstrap file:', (e as Error).message);
+      }
     }
   }
 

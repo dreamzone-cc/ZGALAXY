@@ -99,7 +99,7 @@ cloudflareRouter.post('/verify-token', async (req, res, next) => {
 });
 
 // GET Fetch Available Zones (Domains)
-cloudflareRouter.get('/zones', async (req, res, next) => {
+cloudflareRouter.get('/zones', requireRole('ADMIN', 'OPERATOR'), async (req, res, next) => {
   try {
     const tokenHeader = req.headers['x-cloudflare-token'] as string;
     const zones = await CloudflareService.getZones(tokenHeader);
@@ -110,7 +110,7 @@ cloudflareRouter.get('/zones', async (req, res, next) => {
 });
 
 // GET Fetch Records for a Zone
-cloudflareRouter.get('/zones/:zoneId/records', async (req, res, next) => {
+cloudflareRouter.get('/zones/:zoneId/records', requireRole('ADMIN', 'OPERATOR'), async (req, res, next) => {
   try {
     const { zoneId } = req.params;
     const tokenHeader = req.headers['x-cloudflare-token'] as string;
@@ -132,7 +132,7 @@ cloudflareRouter.post('/sync', requireRole('ADMIN', 'OPERATOR'), async (req, res
 });
 
 // GET Fetch Synchronization History Logs
-cloudflareRouter.get('/logs', async (req, res, next) => {
+cloudflareRouter.get('/logs', requireRole('ADMIN', 'OPERATOR'), async (req, res, next) => {
   try {
     const logs = await CloudflareService.getLogs();
     res.json({ success: true, data: logs });
