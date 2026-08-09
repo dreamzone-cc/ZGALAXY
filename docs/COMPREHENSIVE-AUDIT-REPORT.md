@@ -95,23 +95,43 @@ the world id to 16 hex. Verified: create/delete now work.
 - **H5** ✅ **Fixed**: `/planet/download` no longer writes a placeholder file on
   anonymous requests; it returns a 404 with guidance when the planet is missing.
 
-### MODERATE — status
-- **M1** ✅ **Fixed**: moon download (`/api/v1/moons/:id/download`) is now
-  public (like the planet), fixing the broken console link. Verified: no longer
-  returns 401 without a token.
-- **M2** ✅ **Fixed**: Cloudflare `GET /zones`, `/zones/:zoneId/records`,
-  `/logs` are gated to `ADMIN/OPERATOR`. Verified: READ_ONLY gets 403.
-- **M3** ✅ **Fixed**: `/network/addresses` is gated to `ADMIN/OPERATOR`.
-  Verified: READ_ONLY gets 403.
-- **M4** ⏳ open (cluster node probe before ONLINE).
-- **M5** ⏳ open (multi-root build key self-healing).
-- **M6** ⏳ open (federation permission enforcement).
-- **M7** ⏳ open (syncMode validation).
-- **M8** ⏳ open (backup scope + import hardening).
-- **M9** ⏳ documented residual risk (DNS rebinding).
+### MODERATE — status (all fixed & verified)
+- **M1** ✅ Fixed: moon download public (no 401 without token).
+- **M2** ✅ Fixed: Cloudflare reads gated ADMIN/OP (verified 403 for READ_ONLY).
+- **M3** ✅ Fixed: `/network/addresses` gated ADMIN/OP (verified 403).
+- **M4** ✅ Fixed: `addNode` now **probes** the node for real reachability; a
+  caller-supplied status is no longer trusted. Verified: adding an unreachable
+  node (8.8.8.8) results in `OFFLINE`.
+- **M5** ✅ Fixed: `buildMultiRootPlanet` now shares the same signing-key
+  self-healing (`ensureMoonJsonKeys`) as the single-root build.
+- **M6** ✅ Fixed: permission check (WRITE) happens **before** a token use is
+  consumed. Verified: a READ-only token handshake fails with
+  "lacks required permission: WRITE" and `usedCount` stays 0.
+- **M7** ✅ Fixed: `requestedSyncMode` is validated against the two known modes.
+  Verified: `BOGUS_MODE` is rejected.
+- **M8** ✅ Fixed: backup now includes the engine config (`zt/` + `cfg/` dirs)
+  and import only accepts archives under the server config directory (verified
+  400 for an arbitrary path; archive structure confirmed: `zerotier-one/`,
+  `config/`).
+- **M9** ⏳ documented residual risk (DNS-rebinding/TOCTOU in federation fetch;
+  re-checked at each fetch — no clean fix with the built-in fetch).
 
-### LOW — open (minor)
-L1–L11 as listed in the previous audit (cosmetic/hardening).
+### LOW — status (all fixed & verified)
+- **L1** ✅ `secretsEqual` hashes both values before a constant-time compare.
+- **L2** ✅ validation errors now return **400** (verified: bad domain → 400).
+- **L3** ✅ `/planet/regenerate` rebuilds from the current stored endpoints
+  (verified: no body needed, correct endpoints).
+- **L4** ✅ Cloudflare `mode` is honored: `MANUAL` skips the periodic auto-sync
+  (explicit `/sync` still works).
+- **L5** ✅ domain regex rejects empty labels (`bad..domain` → 400).
+- **L6** ✅ federation `createToken` validates permissions/syncMode/maxUses/
+  expiresInDays/creator.
+- **L7** ✅ dead code removed (`importPlanet`, `executeBinary`).
+- **L8** ✅ versions derive from `package.json` (verified: 1.3.0 on health &
+  planet/info).
+- **L9** ✅ moon init now guards empty `initmoon` stdout (no `stderr` fallback).
+- **L10** ✅ moon endpoints validated as `host:port` (1–65535).
+- **L11** ✅ CORS defaults to the web-console origins when `CORS_ORIGINS` unset.
 
 ## 5. Verified correct (static + live)
 
