@@ -47,8 +47,8 @@ moonRouter.post('/:id/migrate', requireRole('ADMIN', 'OPERATOR'), async (req, re
     }
     const result = await MoonMigrationService.migrateMoon(req.params.id, targetPlanetId);
     res.json({ success: true, data: result });
-  } catch (err) {
-    next(err);
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err?.message || 'Moon migration failed.' });
   }
 });
 
@@ -61,8 +61,8 @@ moonRouter.post('/:id/rebind', requireRole('ADMIN', 'OPERATOR'), async (req, res
     }
     const result = await MoonMigrationService.rebindMoonEndpoints(req.params.id, endpoints);
     res.json({ success: true, data: result });
-  } catch (err) {
-    next(err);
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err?.message || 'Moon re-binding failed.' });
   }
 });
 
@@ -70,8 +70,8 @@ moonRouter.post('/:id/rebuild', requireRole('ADMIN', 'OPERATOR'), async (req, re
   try {
     const result = await MoonService.rebuildMoon(req.params.id);
     res.json(result);
-  } catch (err) {
-    next(err);
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err?.message || 'Moon rebuild failed.' });
   }
 });
 

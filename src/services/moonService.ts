@@ -145,12 +145,13 @@ export class MoonService {
       await CliService.executeCommandArray(idToolCmd, ['genmoon', 'moon.json'], config.ztVarPath);
 
       // Refresh the dist copy so download never serves a stale artifact.
-      const generatedMoon = `${moonData.id}.moon`;
+      const worldIdHex = BigInt('0x' + String(moonData.id)).toString(16).padStart(16, '0');
+      const generatedMoon = `${worldIdHex}.moon`;
       const srcMoon = path.join(config.ztVarPath, generatedMoon);
       if (await FileManager.fileExists(srcMoon)) {
         await FileManager.copyFile(srcMoon, path.join(config.distPath, generatedMoon));
       }
-      return { success: true, message: `Moon ${moonId} rebuilt successfully.` };
+      return { success: true, moonFileName: generatedMoon, message: `Moon ${moonId} rebuilt successfully.` };
     });
   }
 

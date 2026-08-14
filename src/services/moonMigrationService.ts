@@ -69,11 +69,13 @@ export class MoonMigrationService {
       const backup = JSON.stringify(moonData);
       await FileManager.writeJson(moonJsonPath, moonData);
 
+      let newMoonFileName = '';
       try {
         const idToolCmd = await MoonService.getIdToolCmd();
         await CliService.executeCommandArray(idToolCmd, ['genmoon', 'moon.json'], config.ztVarPath);
 
-        const newMoonFileName = `${moonData.id}.moon`;
+        const worldIdHex = BigInt('0x' + String(moonData.id)).toString(16).padStart(16, '0');
+        newMoonFileName = `${worldIdHex}.moon`;
         const srcMoon = path.join(config.ztVarPath, newMoonFileName);
         if (!(await FileManager.fileExists(srcMoon))) {
           throw new Error('genmoon did not produce the migrated .moon file.');
@@ -103,7 +105,7 @@ export class MoonMigrationService {
         previousPlanetId,
         targetPlanetId: targetNode.nodeId,
         updatedEndpoints: [targetEndpoint],
-        moonFileName: `${moonData.id}.moon`,
+        moonFileName: newMoonFileName,
         migratedAt: new Date().toISOString(),
       };
     });

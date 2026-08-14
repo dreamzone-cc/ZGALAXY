@@ -125,34 +125,61 @@ export class DDNSService {
       };
     }
 
-    let currentIp4 = '';
-    let currentIp6 = '';
+    let ips4: string[] = [];
+    let ips6: string[] = [];
     let resolveOk4 = false;
     let resolveOk6 = false;
 
     try {
-      const ips = await dns.resolve4(targetDomain);
-      if (ips.length > 0) {
-        currentIp4 = ips[0];
+      const resolved = await dns.resolve4(targetDomain);
+      if (resolved.length > 0) {
+        ips4 = resolved.sort();
         resolveOk4 = true;
       }
     } catch {
-      currentIp4 = '';
+      ips4 = [];
     }
 
     try {
-      const ips6 = await dns.resolve6(targetDomain);
-      if (ips6.length > 0) {
-        currentIp6 = ips6[0];
+      const resolved6 = await dns.resolve6(targetDomain);
+      if (resolved6.length > 0) {
+        ips6 = resolved6.sort();
         resolveOk6 = true;
       }
     } catch {
-      currentIp6 = '';
+      ips6 = [];
     }
 
-    // Compare as sets and also detect a transition to empty (record removed).
-    const previous4 = ddnsConfig.lastResolvedIp4;
-    const previous6 = ddnsConfig.lastResolvedIp6;
+    const previous4 = ddnsConfig.lastResolvedIp4 || '';
+    const previous6 = ddnsConfig.lastResolvedIp6 || '';
+
+    // If previous IP is still in the valid resolved set, keep it to avoid churn from Round-Robin / multi-A DNS.
+    const currentIp4 = resolveOk4 ? (ips4.includes(previous4) ? previous4 : ips4[0]) : '';
+    const currentIp6 = resolveOk6 ? (ips6.includes(previous6) ? previous6 : ips6[0]) : '';
+
+    const isPrivateIp = (ip: string) => {
+      if (!ip) return false;
+      const parts = ip.split('.').map(Number);
+      if (parts.length === 4) {
+        if (parts[0] === 10) return true;
+        if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+        if (parts[0] === 192 && parts[1] === 168) return true;
+        if (parts[0] === 127) return true;
+        if (parts[0] === 169 && parts[1] === 254) return true;
+      }
+      return false;
+    };
+
+    if (currentIp4 && isPrivateIp(currentIp4) && process.env.ALLOW_PRIVATE_CLUSTER !== '1') {
+      return {
+        changed: false,
+        domain: targetDomain,
+        resolvedIp4: currentIp4,
+        resolvedIp6: currentIp6,
+        message: `Resolved IP ${currentIp4} is a private IP. Set ALLOW_PRIVATE_CLUSTER=1 to allow private Planet endpoints.`,
+      };
+    }
+
     const hasChanged = resolveOk4 !== Boolean(previous4) || resolveOk6 !== Boolean(previous6) ||
       (resolveOk4 && previous4 !== currentIp4) || (resolveOk6 && previous6 !== currentIp6);
 

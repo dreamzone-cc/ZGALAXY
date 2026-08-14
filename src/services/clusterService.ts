@@ -89,13 +89,17 @@ export class ClusterService {
 
     // Default initialization with local node
     const localInfo = await PlanetService.getPlanetInfo();
+    const primaryNodeId = localInfo.nodeAddress && /^[0-9a-fA-F]{10}$/.test(localInfo.nodeAddress)
+      ? localInfo.nodeAddress
+      : 'planet_local_primary';
+
     const defaultTopology: ClusterTopology = {
       clusterId: `cluster_${Date.now()}`,
       clusterName: 'ZGALAXY Global Federated Cluster',
       syncSecret: crypto.randomBytes(24).toString('hex'),
       nodes: [
         {
-          nodeId: 'planet_local_primary',
+          nodeId: primaryNodeId,
           name: 'Planet Primary (Local)',
           ip4: localInfo.ip4 || '127.0.0.1',
           ip6: localInfo.ip6 || '',
@@ -127,10 +131,9 @@ export class ClusterService {
       throw new Error(`Invalid port: '${node.port}'.`);
     }
     // Nodes are later probed via HTTP health checks; block private/reserved IPs
-    // so a low-privilege caller cannot use the ONLINE/OFFLINE result as an
-    // internal-network oracle (mirrors the federation SSRF guard).
-    if (!this.isProbeableIp(node.ip4)) {
-      throw new Error(`Blocked: node IP '${node.ip4}' is a private/reserved address.`);
+    // unless ALLOW_PRIVATE_CLUSTER is enabled (e.g. for homelabs and private datacenters).
+    if (!this.isProbeableIp(node.ip4) && process.env.ALLOW_PRIVATE_CLUSTER !== '1' && !node.isLocal) {
+      throw new Error(`Blocked: node IP '${node.ip4}' is a private/reserved address. Set ALLOW_PRIVATE_CLUSTER=1 to allow.`);
     }
 
     const topology = await this.loadRawTopology();
@@ -156,6 +159,8 @@ export class ClusterService {
     };
 
     if (existingIndex >= 0) {
+      // Preserve local-primary flag if already set.
+      if (topology.nodes[existingIndex].isLocal) newNode.isLocal = true;
       topology.nodes[existingIndex] = newNode;
     } else {
       if (topology.nodes.length >= this.MAX_NODES) {
@@ -170,10 +175,20 @@ export class ClusterService {
 
   public static async removeNode(nodeId: string): Promise<any> {
     const topology = await this.loadRawTopology();
-    // Keep the local primary node always; drop only the targeted node.
-    // (The previous predicate also removed the local node on every call.)
+    // Keep the local primary node (first local node) always; drop the targeted node.
+    const primaryLocalIndex = topology.nodes.findIndex((n) => n.isLocal);
+    if (primaryLocalIndex >= 0 && topology.nodes[primaryLocalIndex].nodeId === nodeId && topology.nodes.length === 1) {
+      throw new Error(`Cannot remove the primary local cluster node '${nodeId}'.`);
+    }
+
     const initialLen = topology.nodes.length;
-    topology.nodes = topology.nodes.filter((n) => n.nodeId !== nodeId || n.isLocal);
+    topology.nodes = topology.nodes.filter((n, idx) => {
+      if (n.nodeId !== nodeId) return true;
+      // Protect only the first local node if there are multiple nodes
+      if (idx === primaryLocalIndex && topology.nodes.length === 1) return true;
+      return false;
+    });
+
     const removed = topology.nodes.length !== initialLen;
     if (!removed) {
       throw new Error(`Cluster node '${nodeId}' not found.`);
@@ -229,6 +244,7 @@ export class ClusterService {
         ip6: n.ip6,
         domain: n.domain,
         port: n.port,
+        isLocal: n.isLocal,
       }))
     );
 

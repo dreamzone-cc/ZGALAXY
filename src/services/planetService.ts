@@ -21,6 +21,7 @@ export interface PlanetRootNode {
   ip6?: string;
   domain?: string;
   port?: number;
+  isLocal?: boolean;
 }
 
 export class PlanetService {
@@ -304,13 +305,23 @@ export class PlanetService {
       for (const rip of resolvedIps) stableEndpoints.push(`${rip}/${port}`);
       if (node.ip4 && !resolvedIps.includes(node.ip4)) stableEndpoints.push(`${node.ip4}/${port}`);
       if (node.ip6) stableEndpoints.push(`${node.ip6}/${port}`);
-      if (node.domain) stableEndpoints.push(`${node.domain}/${port}`);
+      let resolvedNodeId = node.nodeId || '';
+      if (!/^[0-9a-f]{10}$/i.test(resolvedNodeId)) {
+        const publicIdPath = path.join(config.ztVarPath, 'identity.public');
+        if (await FileManager.fileExists(publicIdPath)) {
+          const content = await FileManager.readText(publicIdPath);
+          const addr = content.split(':')[0]?.trim();
+          if (addr && /^[0-9a-f]{10}$/i.test(addr)) {
+            resolvedNodeId = addr;
+          }
+        }
+      }
       // ZeroTier root ids are 10-hex addresses; arbitrary cluster nodeIds break genmoon.
-      if (!/^[0-9a-f]{10}$/i.test(node.nodeId || '')) {
+      if (!/^[0-9a-f]{10}$/i.test(resolvedNodeId)) {
         throw new Error(`Invalid root node id '${node.nodeId}' — ZeroTier roots require a 10-hex address.`);
       }
       return {
-        id: node.nodeId,
+        id: resolvedNodeId,
         stableEndpoints,
       };
       })
@@ -325,7 +336,24 @@ export class PlanetService {
     // moon.json makes genmoon fail forever, so ensure keys first.
     const moonData: any = await this.ensureMoonJsonKeys();
     moonData.objtype = 'moon';
-    moonData.roots = rootEntries;
+
+    const publicIdPath = path.join(config.ztVarPath, 'identity.public');
+    let localIdentityStr = '';
+    if (await FileManager.fileExists(publicIdPath)) {
+      localIdentityStr = (await FileManager.readText(publicIdPath)).trim();
+    }
+    const defaultRootIdentity = (moonData.roots && moonData.roots[0]?.identity) || localIdentityStr;
+
+    const formattedRoots = rootEntries.map((r, idx) => {
+      const isLocalRoot = (localIdentityStr && localIdentityStr.startsWith(r.id)) || idx === 0;
+      const ident = isLocalRoot ? (localIdentityStr || defaultRootIdentity) : defaultRootIdentity;
+      return {
+        identity: ident,
+        stableEndpoints: r.stableEndpoints,
+      };
+    });
+
+    moonData.roots = formattedRoots;
     await FileManager.writeJson(moonJsonPath, moonData);
 
     const idToolCmd = await this.resolveIdTool();

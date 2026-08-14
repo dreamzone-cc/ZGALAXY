@@ -202,109 +202,115 @@ export class FederationPeerService {
     return defaultTopology;
   }
 
+  private static peerMutex: Promise<unknown> = Promise.resolve();
+
+  private static async serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.peerMutex.then(fn, fn);
+    this.peerMutex = result.catch(() => {});
+    return result;
+  }
+
   private static async savePeerTopology(topology: FederationTopology): Promise<void> {
     await FileManager.writeJson(this.peerConfigPath, topology);
   }
 
   // Handle incoming inter-node handshake request
   public static async handleIncomingHandshake(payload: HandshakePayload): Promise<any> {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Malformed handshake payload.');
-    }
-    if (!payload.sourceNodeId || !/^[A-Za-z0-9_.-]{1,64}$/.test(payload.sourceNodeId)) {
-      throw new Error('Invalid sourceNodeId.');
-    }
-    if (!payload.sourceEndpoint || typeof payload.sourceEndpoint !== 'string') {
-      throw new Error('sourceEndpoint is required.');
-    }
-    await this.assertSafeTargetUrl(payload.sourceEndpoint);
-    if (!this.trackHandshake(payload.sourceNodeId)) {
-      throw new Error('Too many handshake attempts from this source. Please try again later.');
-    }
+    return this.serialize(async () => {
+      if (!payload || typeof payload !== 'object') {
+        throw new Error('Malformed handshake payload.');
+      }
+      if (!payload.sourceNodeId || !/^[A-Za-z0-9_.-]{1,64}$/.test(payload.sourceNodeId)) {
+        throw new Error('Invalid sourceNodeId.');
+      }
+      if (!payload.sourceEndpoint || typeof payload.sourceEndpoint !== 'string') {
+        throw new Error('sourceEndpoint is required.');
+      }
+      await this.assertSafeTargetUrl(payload.sourceEndpoint);
+      if (!this.trackHandshake(payload.sourceNodeId)) {
+        throw new Error('Too many handshake attempts from this source. Please try again later.');
+      }
 
-    const tokenResult = await FederationTokenService.validateToken(payload.tokenSecret, 'WRITE');
-    if (!tokenResult.valid || !tokenResult.token) {
-      throw new Error(`Federation Handshake Failed: ${tokenResult.error}`);
-    }
+      const tokenResult = await FederationTokenService.validateToken(payload.tokenSecret, 'WRITE');
+      if (!tokenResult.valid || !tokenResult.token) {
+        throw new Error(`Federation Handshake Failed: ${tokenResult.error}`);
+      }
 
-    const token = tokenResult.token;
+      const token = tokenResult.token;
 
-    // Validate a caller-supplied sync mode (M7): only the two known modes are
-    // accepted; a garbage value would otherwise be persisted as-is.
-    const requestedMode = payload.requestedSyncMode as string | undefined;
-    if (requestedMode && requestedMode !== 'FEDERATION_INHERITED' && requestedMode !== 'DIRECT_ISOLATED') {
-      throw new Error(
-        `Invalid requestedSyncMode '${requestedMode}'. Allowed: FEDERATION_INHERITED, DIRECT_ISOLATED.`
-      );
-    }
-    const effectiveSyncMode: SyncMode = (requestedMode || token.syncMode || 'FEDERATION_INHERITED') as SyncMode;
-    const isTransitive = effectiveSyncMode === 'FEDERATION_INHERITED';
+      // Validate a caller-supplied sync mode (M7): only the two known modes are
+      // accepted; a garbage value would otherwise be persisted as-is.
+      const requestedMode = payload.requestedSyncMode as string | undefined;
+      if (requestedMode && requestedMode !== 'FEDERATION_INHERITED' && requestedMode !== 'DIRECT_ISOLATED') {
+        throw new Error(
+          `Invalid requestedSyncMode '${requestedMode}'. Allowed: FEDERATION_INHERITED, DIRECT_ISOLATED.`
+        );
+      }
+      const effectiveSyncMode: SyncMode = (requestedMode || token.syncMode || 'FEDERATION_INHERITED') as SyncMode;
+      const isTransitive = effectiveSyncMode === 'FEDERATION_INHERITED';
 
-    const topology = await this.getPeerTopology();
+      const topology = await this.getPeerTopology();
 
-    // A node must not register itself as a peer.
-    if (payload.sourceNodeId === topology.localNodeId) {
-      throw new Error('Cannot register the local node as its own peer.');
-    }
+      // A node must not register itself as a peer.
+      if (payload.sourceNodeId === topology.localNodeId) {
+        throw new Error('Cannot register the local node as its own peer.');
+      }
 
-    // Bound inbound identity fields to sane sizes.
-    if ((payload.sourceNodeName && payload.sourceNodeName.length > 128) || payload.sourceEndpoint.length > 512) {
-      throw new Error('Handshake fields exceed allowed size limits.');
-    }
+      // Bound inbound identity fields to sane sizes.
+      if ((payload.sourceNodeName && payload.sourceNodeName.length > 128) || payload.sourceEndpoint.length > 512) {
+        throw new Error('Handshake fields exceed allowed size limits.');
+      }
 
-    // Anti-poisoning: enforce a hard cap on the peer table.
-    if (
-      topology.peers.length >= this.MAX_PEERS &&
-      !topology.peers.some((p: any) => p.nodeId === payload.sourceNodeId)
-    ) {
-      throw new Error(`Peer table is full (max ${this.MAX_PEERS}). Rejecting new peer.`);
-    }
+      // Anti-poisoning: enforce a hard cap on the peer table.
+      if (
+        topology.peers.length >= this.MAX_PEERS &&
+        !topology.peers.some((p: any) => p.nodeId === payload.sourceNodeId)
+      ) {
+        throw new Error(`Peer table is full (max ${this.MAX_PEERS}). Rejecting new peer.`);
+      }
 
-    // Register or update peer
-    const existingIndex = topology.peers.findIndex((p) => p.nodeId === payload.sourceNodeId);
-    const peerNode: FederationPeer = {
-      nodeId: payload.sourceNodeId,
-      nodeName: payload.sourceNodeName,
-      endpoint: payload.sourceEndpoint,
-      syncMode: effectiveSyncMode,
-      connectionType: isTransitive ? 'TRANSITIVE' : 'NON_TRANSITIVE',
-      discoveredVia: 'DIRECT_HANDSHAKE',
-      status: 'ONLINE',
-      latencyMs: 1.0,
-      lastSyncedAt: new Date().toISOString(),
-      joinedAt: existingIndex >= 0 ? topology.peers[existingIndex].joinedAt : new Date().toISOString(),
-    };
+      const peerNode: FederationPeer = {
+        nodeId: payload.sourceNodeId,
+        nodeName: payload.sourceNodeName || `Node_${payload.sourceNodeId.substring(0, 8)}`,
+        endpoint: payload.sourceEndpoint,
+        syncMode: effectiveSyncMode,
+        connectionType: isTransitive ? 'TRANSITIVE' : 'NON_TRANSITIVE',
+        discoveredVia: 'DIRECT_HANDSHAKE',
+        status: 'ONLINE',
+        latencyMs: 1.0,
+        lastSyncedAt: new Date().toISOString(),
+        joinedAt: new Date().toISOString(),
+      };
 
-    if (existingIndex >= 0) {
-      topology.peers[existingIndex] = peerNode;
-    } else {
-      topology.peers.push(peerNode);
-    }
+      const existingIndex = topology.peers.findIndex((p: any) => p.nodeId === payload.sourceNodeId);
+      if (existingIndex >= 0) {
+        peerNode.joinedAt = topology.peers[existingIndex].joinedAt || peerNode.joinedAt;
+        topology.peers[existingIndex] = peerNode;
+      } else {
+        topology.peers.push(peerNode);
+      }
 
-    await this.savePeerTopology(topology);
+      await this.savePeerTopology(topology);
 
-    // Filter mesh peers to share based on isolation policy
-    let shareablePeers: FederationPeer[] = [];
-    if (effectiveSyncMode === 'FEDERATION_INHERITED') {
-      // Share only TRANSITIVE peers (inherited mesh), strictly hiding isolated peers!
-      shareablePeers = topology.peers.filter(
-        (p) => p.syncMode === 'FEDERATION_INHERITED' && p.nodeId !== payload.sourceNodeId
-      );
-    } else {
-      // DIRECT_ISOLATED mode: Share 0 peers! Strict isolation.
-      shareablePeers = [];
-    }
+      // Only return shareable peers if effective mode is FEDERATION_INHERITED.
+      // DIRECT_ISOLATED nodes must not receive (nor share) the broader mesh list.
+      const shareablePeers = isTransitive
+        ? topology.peers
+            .filter((p: any) => p.nodeId !== payload.sourceNodeId && p.syncMode === 'FEDERATION_INHERITED')
+            .slice(0, 50)
+        : [];
 
-    return {
-      success: true,
-      responderNodeId: topology.localNodeId,
-      responderNodeName: topology.localNodeName,
-      responderEndpoint: topology.localEndpoint,
-      effectiveSyncMode,
-      connectionType: peerNode.connectionType,
-      shareablePeers,
-      message: `Handshake successful in [${effectiveSyncMode}] mode.`,
-    };
+      return {
+        success: true,
+        responderNodeId: topology.localNodeId,
+        responderNodeName: topology.localNodeName,
+        responderEndpoint: topology.localEndpoint,
+        effectiveSyncMode,
+        connectionType: peerNode.connectionType,
+        shareablePeers,
+        message: `Handshake successful in [${effectiveSyncMode}] mode.`,
+      };
+    });
   }
 
   /**
@@ -483,15 +489,17 @@ export class FederationPeerService {
 
   // Remove / Disconnect a peer from the local node
   public static async removePeer(nodeId: string): Promise<boolean> {
-    const topology = await this.getPeerTopology();
-    const initialLen = topology.peers.length;
-    topology.peers = topology.peers.filter((p) => p.nodeId !== nodeId);
+    return this.serialize(async () => {
+      const topology = await this.getPeerTopology();
+      const initialLen = topology.peers.length;
+      topology.peers = topology.peers.filter((p) => p.nodeId !== nodeId);
 
-    if (topology.peers.length !== initialLen) {
-      await this.savePeerTopology(topology);
-      return true;
-    }
-    return false;
+      if (topology.peers.length !== initialLen) {
+        await this.savePeerTopology(topology);
+        return true;
+      }
+      return false;
+    });
   }
 }
 

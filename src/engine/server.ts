@@ -16,12 +16,21 @@ let cfRunning = false;
 let sessionSweepRunning = false;
 let shuttingDown = false;
 
+let lastDdnsCheckTime = 0;
+
 // Overlap-guarded worker wrappers: never run two instances of the same worker
 // at once, even if a cycle takes longer than the interval.
 async function runDdnsWorker(): Promise<void> {
   if (ddnsRunning || shuttingDown) return;
   ddnsRunning = true;
   try {
+    const ddnsConfig = await DDNSService.getConfig();
+    const intervalMinutes = Math.max(1, Number(ddnsConfig?.checkIntervalMinutes) || 5);
+    const now = Date.now();
+    if (now - lastDdnsCheckTime < intervalMinutes * 60 * 1000 - 5000 && lastDdnsCheckTime !== 0) {
+      return;
+    }
+    lastDdnsCheckTime = now;
     const syncResult = await DDNSService.checkAndSyncDDNS();
     if (syncResult.changed) {
       console.log(`[ZGALAXY DDNS WORKER] ${syncResult.message}`);

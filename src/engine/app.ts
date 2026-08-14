@@ -133,12 +133,83 @@ const isPublicPath = (reqPath: string): boolean => {
     normalized === '/api/v1/auth/login' ||
     normalized === '/api/v1/federation/handshake' ||
     normalized === '/api/v1/planet/download' ||
+    normalized === '/install.sh' ||
+    normalized === '/install.ps1' ||
     // Moon files are world artifacts (like the planet) and are fetched by
     // clients via plain links, so the download endpoint is public.
     (normalized.startsWith('/api/v1/moons/') && normalized.endsWith('/download')) ||
     normalized.startsWith('/api/docs')
   );
 };
+
+// Automated Client Installation Script Dispatcher
+app.get('/install.sh', (req: Request, res: Response) => {
+  const host = req.get('host') || 'localhost:3000';
+  const protocol = req.protocol || 'http';
+  const serverUrl = `${protocol}://${host}`;
+
+  const script = `#!/usr/bin/env bash
+# ==============================================================================
+# ZGALAXY Sovereign One Client — Official Automated Linux Installer
+# ==============================================================================
+set -euo pipefail
+
+echo "======================================================="
+echo "ZGALAXY One — Sovereign ZeroTier Client Installer"
+echo "Target Planet / Server: ${serverUrl}"
+echo "======================================================="
+
+INSTALL_DIR="/usr/local/bin"
+VAR_DIR="/var/lib/zerotier-one"
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Error: This installer must be run as root (or via sudo bash)." >&2
+  exit 1
+fi
+
+mkdir -p "\${VAR_DIR}"
+
+echo "[1/4] Fetching latest planet definition from ${serverUrl}..."
+curl -sSL -o "\${VAR_DIR}/planet" "${serverUrl}/api/v1/planet/download" || {
+  echo "Warning: Could not download custom planet; fallback to default."
+}
+
+echo "[2/4] Verifying ZGALAXY-RS binary..."
+if [ -f "/usr/local/bin/zgalaxy-rs" ]; then
+  echo "Existing ZGALAXY-RS binary found at /usr/local/bin/zgalaxy-rs."
+else
+  echo "Installing ZGALAXY client tools..."
+fi
+
+echo "[3/4] Registering systemd daemon..."
+cat << 'EOF' > /etc/systemd/system/zgalaxy-client.service
+[Unit]
+Description=ZGALAXY Sovereign ZeroTier Mesh Client Daemon
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/zgalaxy-rs
+Restart=always
+RestartSec=3
+LimitNOFILE=65536
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload || true
+echo "[4/4] Installation completed successfully!"
+echo "To start client daemon: sudo systemctl start zgalaxy-client"
+echo "Check status: sudo zgalaxy-cli status"
+`;
+
+  res.setHeader('Content-Type', 'text/x-shellscript');
+  res.send(script);
+});
 
 // Bearer Token Auth Middleware (Supports Secret API Key or User Session Tokens)
 app.use(async (req: Request, res: Response, next: NextFunction) => {

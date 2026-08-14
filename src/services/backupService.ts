@@ -6,6 +6,8 @@ import { config } from '../engine/config';
 import { FileManager } from './fileManager';
 import { CliService } from './cliService';
 
+import os from 'os';
+
 const MAGIC = Buffer.from('ZGAL');
 const VERSION = 0x01;
 // Header: MAGIC(4) + VERSION(1) + IV(12) + TAG(16) = 33 bytes.
@@ -19,7 +21,8 @@ function deriveKey(): Buffer {
 
 export class BackupService {
   public static async exportBackup(): Promise<any> {
-    const archivePath = path.join(config.configPath, 'zerotier_backup.tar.gz');
+    const tmpArchive = path.join(os.tmpdir(), `zerotier_backup_${process.pid}_${Date.now()}.tar.gz`);
+    const encryptedPath = path.join(config.configPath, 'zerotier_backup.tar.gz.enc');
 
     if (!(await FileManager.fileExists(config.ztVarPath))) {
       throw new Error(`ZeroTier data directory does not exist at ${config.ztVarPath}`);
@@ -42,8 +45,12 @@ export class BackupService {
       'tar',
       [
         '--warning=no-file-changed',
+        '--exclude=*.tar.gz*',
+        '--exclude=*.tmp*',
+        '--exclude=*-wal',
+        '--exclude=*-shm',
         '-czf',
-        archivePath,
+        tmpArchive,
         '-C',
         ztParent,
         path.basename(config.ztVarPath),
@@ -55,10 +62,9 @@ export class BackupService {
       60_000
     );
 
-    const encryptedPath = `${archivePath}.enc`;
     try {
-      await this.streamEncrypt(archivePath, encryptedPath);
-      const checksum = crypto.createHash('sha256').update(await fs.promises.readFile(archivePath)).digest('hex');
+      await this.streamEncrypt(tmpArchive, encryptedPath);
+      const checksum = crypto.createHash('sha256').update(await fs.promises.readFile(tmpArchive)).digest('hex');
       return {
         success: true,
         encrypted: true,
@@ -68,8 +74,8 @@ export class BackupService {
         exportedAt: new Date().toISOString(),
       };
     } finally {
-      // Always remove the plaintext intermediate, even on failure/crash paths.
-      await fs.promises.unlink(archivePath).catch(() => {});
+      // Always remove the plaintext intermediate in tmp, even on failure/crash paths.
+      await fs.promises.unlink(tmpArchive).catch(() => {});
     }
   }
 

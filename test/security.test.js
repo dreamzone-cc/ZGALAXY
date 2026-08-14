@@ -164,7 +164,7 @@ test('H1: federation handshake rejects internal source endpoints (topology poiso
 });
 
 test('H3: backup import rejects non-gzip junk files', async () => {
-  const junk = path.join(tmpRoot, 'junk.txt');
+  const junk = path.join(tmpRoot, 'config', 'junk.txt');
   fs.writeFileSync(junk, 'not a gzip archive');
   const res = await req('POST', '/api/v1/backup/import', {
     token: adminToken,
@@ -199,11 +199,8 @@ test('H4: logout invalidates the session token', async () => {
 // ---------- Round-2 deep-inspection regression tests ----------
 
 test('R2: identity verification handles the real addr:0:pubkey format', async () => {
-  const crypto = require('node:crypto');
-  const pub = crypto.randomBytes(32).toString('hex');
-  const addr = crypto.createHash('sha384').update(Buffer.from(pub, 'hex')).digest('hex').substring(0, 10);
-  fs.writeFileSync(path.join(tmpRoot, 'ztvar', 'identity.public'), `${addr}:0:${pub}`);
-  fs.writeFileSync(path.join(tmpRoot, 'ztvar', 'identity.secret'), 'x');
+  const genRes = await req('POST', '/api/v1/identity/generate', { token: adminToken });
+  assert.strictEqual(genRes.status, 200);
   const res = await req('POST', '/api/v1/identity/verify', { token: adminToken });
   const data = await res.json();
   assert.strictEqual(data.success, true);
@@ -297,4 +294,53 @@ test('R3: streaming backup export/import roundtrip (constant-memory path)', asyn
   assert.strictEqual(impData.success, true);
   assert.strictEqual(impData.encrypted, true);
   assert.strictEqual(fs.readFileSync(path.join(tmpRoot, 'ztvar', 'roundtrip.txt'), 'utf8'), 'roundtrip-data');
+});
+
+// ---------- Round-4 Deep Audit Fixes Regression Tests ----------
+
+test('R4: GET /install.sh is public and serves automated installer', async () => {
+  const res = await req('GET', '/install.sh');
+  assert.strictEqual(res.status, 200);
+  const text = await res.text();
+  assert.ok(text.includes('ZGALAXY One — Sovereign ZeroTier Client Installer'));
+  assert.ok(text.includes('/usr/local/bin/zgalaxy-rs'));
+});
+
+test('R4: federation handshake under concurrent requests persists all peers', async () => {
+  const tokenRes = await req('POST', '/api/v1/federation/tokens/create', {
+    token: adminToken,
+    body: { name: 'race_test_token', syncMode: 'FEDERATION_INHERITED', maxUses: 50 },
+  });
+  const tokenData = (await tokenRes.json()).data;
+  assert.ok(tokenData && tokenData.tokenSecret);
+
+  // Send 6 concurrent handshakes with unique node IDs
+  const parallelHandshakes = Array.from({ length: 6 }, (_, i) => {
+    return req('POST', '/api/v1/federation/handshake', {
+      body: {
+        sourceNodeId: `node_race_${i}_${Date.now().toString(36)}`,
+        sourceNodeName: `Concurrent Test Node ${i}`,
+        sourceEndpoint: `http://198.51.100.${10 + i}:3000`,
+        tokenSecret: tokenData.tokenSecret,
+        requestedSyncMode: 'FEDERATION_INHERITED',
+      },
+    });
+  });
+
+  const responses = await Promise.all(parallelHandshakes);
+  for (const r of responses) {
+    const json = await r.json();
+    assert.strictEqual(json.success, true);
+  }
+
+  const peersRes = await req('GET', '/api/v1/federation/peers', { token: adminToken });
+  const peersData = (await peersRes.json()).data;
+  assert.ok(peersData.peers.length >= 6, 'All concurrent peers must be persisted without race loss');
+});
+
+test('R4: cluster build-unified succeeds out-of-the-box with local node', async () => {
+  const buildRes = await req('POST', '/api/v1/cluster/build-unified', { token: adminToken });
+  const buildData = await buildRes.json();
+  assert.strictEqual(buildRes.status, 200);
+  assert.strictEqual(buildData.success, true);
 });

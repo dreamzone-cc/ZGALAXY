@@ -88,6 +88,21 @@
 	let joinTokenSecret = $state('');
 	let joinRequestedMode = $state<'FEDERATION_INHERITED' | 'DIRECT_ISOLATED'>('FEDERATION_INHERITED');
 
+	// Sovereign Rust Client & Deployment Hub State
+	let clientDeployPlatform = $state<'LINUX' | 'WINDOWS' | 'CARGO'>('LINUX');
+	let clientJoinNwid = $state('069ae38092000001');
+	let clientInstallCopied = $state(false);
+	let backupRestorePath = $state('');
+
+	function copyToClipboard(text: string) {
+		if (typeof navigator !== 'undefined' && navigator.clipboard) {
+			navigator.clipboard.writeText(text);
+			clientInstallCopied = true;
+			logMessage(`[ CLIPBOARD ] Copied deployment command: ${text}`);
+			setTimeout(() => { clientInstallCopied = false; }, 2500);
+		}
+	}
+
 	function showCustomAlert(title: string, message: string) {
 		dialogTitle = title;
 		dialogMessage = message;
@@ -877,6 +892,20 @@
 		}
 	}
 
+	async function handleImportBackup() {
+		if (!backupRestorePath || !backupRestorePath.trim()) {
+			showCustomAlert('[ ERROR ]', 'Please specify the server backup archive path to restore.');
+			return;
+		}
+		logMessage(`[ ACTION ] Restoring ZGalaxy backup from: ${backupRestorePath}...`);
+		const res = await apiRequest('/api/v1/backup/import', 'POST', { tarPath: backupRestorePath.trim() });
+		if (res && res.success) {
+			logMessage(`[ SUCCESS ] Backup restored successfully!`);
+			showCustomAlert('[ RESTORE COMPLETED ]', 'Backup archive restored successfully. Reloading dashboard data...');
+			await loadDashboardData();
+		}
+	}
+
 	async function loadDashboardData() {
 		// Run all dashboard fetches in parallel (Promise.allSettled so one
 		// failure does not block the rest); each fetch swallows its own errors.
@@ -1035,6 +1064,7 @@
 				<div style="margin-top: 12px;">
 					<select class="tui-input" aria-label="Quick navigation to dashboard panels" onchange={(e) => { jumpToPanel((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
 						<option value="">-- [ QUICK NAVIGATE TO PANEL ] --</option>
+						<option value="panel-client-hub">SOVEREIGN RUST CLIENT</option>
 						<option value="panel-federation">FEDERATION & TOKENS</option>
 						<option value="panel-cluster">CLUSTER HA</option>
 						<option value="panel-cloudflare">CLOUDFLARE DNS</option>
@@ -1732,6 +1762,104 @@
 			</div>
 		</div>
 
+		<!-- SOVEREIGN RUST CLIENT & AGENT HUB PANEL -->
+		<div class="tui-box" id="panel-client-hub" style="margin-bottom: 24px;">
+			<div class="tui-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+				<div>┌── [ ZGALAXY SOVEREIGN RUST CLIENT & AGENT HUB (AGPL-3.0) ]</div>
+				<div>
+					<span class="tui-badge tui-badge-ok">[ RUST 2021 | 100% MEMORY SAFE ]</span>
+					<span class="tui-badge" style="border-color: var(--accent-gold); color: var(--accent-gold);">[ ZERO-RESTART DYNAMIC IP ]</span>
+				</div>
+			</div>
+			<div class="tui-body">
+				<div style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+					Ultra-high-performance, sovereign ZeroTier-compatible client written in pure Rust. Features native in-memory DNS auto-relinking, zero packet drops, 100% memory safety, and full AGPL-3.0 licensing freedom.
+				</div>
+
+				<div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
+					<button class="tui-btn {clientDeployPlatform === 'LINUX' ? 'tui-btn-primary' : ''}" onclick={() => { clientDeployPlatform = 'LINUX'; }}>[ LINUX (BASH ONE-LINER) ]</button>
+					<button class="tui-btn {clientDeployPlatform === 'WINDOWS' ? 'tui-btn-primary' : ''}" onclick={() => { clientDeployPlatform = 'WINDOWS'; }}>[ WINDOWS (POWERSHELL) ]</button>
+					<button class="tui-btn {clientDeployPlatform === 'CARGO' ? 'tui-btn-primary' : ''}" onclick={() => { clientDeployPlatform = 'CARGO'; }}>[ CARGO / SOURCE BUILD ]</button>
+				</div>
+
+				<div style="background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-gold); padding: 14px; margin-bottom: 16px;">
+					<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+						<span style="font-size: 12px; color: var(--accent-gold); font-weight: bold;">
+							{#if clientDeployPlatform === 'LINUX'}
+								# LINUX (UBUNTU / DEBIAN / RHEL / ARCH / ALPINE) SINGLE-COMMAND INSTALL:
+							{:else if clientDeployPlatform === 'WINDOWS'}
+								# WINDOWS POWERSHELL (RUN AS ADMINISTRATOR):
+							{:else}
+								# CARGO RUST PACKAGE MANAGER INSTALL:
+							{/if}
+						</span>
+						<button class="tui-btn tui-btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick={() => {
+							const cmd = clientDeployPlatform === 'LINUX'
+								? `curl -sSL ${apiUrl || 'http://' + (typeof window !== 'undefined' ? window.location.hostname : 'localhost') + ':3000'}/install.sh | sudo bash`
+								: clientDeployPlatform === 'WINDOWS'
+								? `irm https://raw.githubusercontent.com/dreamzone-cc/ZGALAXY/main/zgalaxy-rs/install.ps1 | iex`
+								: `cargo install --git https://github.com/dreamzone-cc/ZGALAXY zgalaxy-rs`;
+							copyToClipboard(cmd);
+						}}>
+							{clientInstallCopied ? '[ COPIED TO CLIPBOARD ✓ ]' : '[ COPY COMMAND ]'}
+						</button>
+					</div>
+
+					<pre style="background: #050507; padding: 10px; color: #00ffb7; font-family: monospace; font-size: 13px; margin: 0; overflow-x: auto; white-space: pre-wrap;"><code>{#if clientDeployPlatform === 'LINUX'}curl -sSL {apiUrl || 'http://' + (typeof window !== 'undefined' ? window.location.hostname : 'localhost') + ':3000'}/install.sh | sudo bash{:else if clientDeployPlatform === 'WINDOWS'}irm https://raw.githubusercontent.com/dreamzone-cc/ZGALAXY/main/zgalaxy-rs/install.ps1 | iex{:else}cargo install --git https://github.com/dreamzone-cc/ZGALAXY zgalaxy-rs{/if}</code></pre>
+				</div>
+
+				<!-- Quick Join Network Code Generator -->
+				<div class="tui-divider"></div>
+				<div style="font-size: 13px; font-weight: bold; color: var(--accent-gold); margin-bottom: 8px;">
+					[ ONE-CLICK NETWORK JOIN COMMAND GENERATOR ]
+				</div>
+				<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px;">
+					<input class="tui-input" style="flex: 1; min-width: 220px;" bind:value={clientJoinNwid} placeholder="16-hex Network ID (e.g. 069ae38092000001)" />
+					<button class="tui-btn" onclick={() => copyToClipboard(`zgalaxy-cli join ${clientJoinNwid}`)}>
+						[ COPY: zgalaxy-cli join {clientJoinNwid} ]
+					</button>
+					<button class="tui-btn" onclick={() => copyToClipboard(`zerotier-cli join ${clientJoinNwid}`)}>
+						[ COPY: zerotier-cli join {clientJoinNwid} ]
+					</button>
+				</div>
+
+				<!-- Architecture Comparison Highlights -->
+				<div class="table-responsive" style="margin-top: 14px;">
+					<table class="tui-table">
+						<thead>
+							<tr>
+								<th>METRIC / CAPABILITY</th>
+								<th>ZGALAXY-RS (RUST CLIENT)</th>
+								<th>LEGACY C++ FORK</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr>
+								<td style="color: var(--accent-gold);">LICENSE & SOVEREIGNTY</td>
+								<td><span class="tui-badge tui-badge-ok">[ AGPL-3.0 100% FREE ]</span></td>
+								<td><span class="tui-badge tui-badge-warn">[ BSL / SOURCE-AVAILABLE ]</span></td>
+							</tr>
+							<tr>
+								<td style="color: var(--accent-gold);">DYNAMIC IP RE-LINKING</td>
+								<td><span class="tui-badge tui-badge-ok">[ ZERO-RESTART IN-MEMORY ]</span></td>
+								<td><span class="tui-badge tui-badge-warn">[ SYSTEMCTL RESTART LOOP ]</span></td>
+							</tr>
+							<tr>
+								<td style="color: var(--accent-gold);">MEMORY SAFETY</td>
+								<td><span class="tui-badge tui-badge-ok">[ 100% PROVEN SAFE (TOKIO) ]</span></td>
+								<td><span class="tui-badge">[ C++ MANUAL MEMORY ]</span></td>
+							</tr>
+							<tr>
+								<td style="color: var(--accent-gold);">STANDALONE BINARY SIZE</td>
+								<td><span class="tui-badge tui-badge-ok">[ ~5 - 8 MB STATIC ]</span></td>
+								<td><span class="tui-badge">[ ~18 MB + SCRIPT DEPS ]</span></td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+
 		<!-- Secondary Grid: Identity & Backup -->
 		<div class="grid-2" id="panel-identity">
 			<!-- Identity Panel -->
@@ -1764,8 +1892,12 @@
 						Export or restore full encrypted archives containing world.bin, moon configs, keys, and tokens.
 					</p>
 					{#if currentUserRole === 'ADMIN'}
-						<div style="display: flex; gap: 8px; flex-wrap: wrap;">
+						<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;">
 							<button class="tui-btn tui-btn-success" onclick={handleExportBackup}>[ EXPORT FULL BACKUP ARCHIVE ]</button>
+						</div>
+						<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+							<input class="tui-input" style="flex: 1; min-width: 250px;" bind:value={backupRestorePath} placeholder="Server archive path (e.g. config/zerotier_backup.tar.gz.enc)" />
+							<button class="tui-btn tui-btn-danger" onclick={handleImportBackup}>[ RESTORE FROM ARCHIVE ]</button>
 						</div>
 					{/if}
 				</div>
