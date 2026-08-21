@@ -26,16 +26,8 @@ start() {
     fi
 }
 
-check_file_server() {
-    if [ ! -f "/app/config/file_server.port" ]; then
-        echo "${FILE_SERVER_PORT}" >/app/config/file_server.port
-        echo "file_server.port = ${FILE_SERVER_PORT}"
-    else
-        echo "file_server.port exists, reading it"
-        FILE_SERVER_PORT=$(cat /app/config/file_server.port)
-        echo "file_server.port = ${FILE_SERVER_PORT}"
-    fi
-}
+# check_file_server removed: http_server.js was dead code (never started) and
+# its FILE_SERVER_PORT collided with ENGINE_PORT.
 
 check_zerotier() {
     mkdir -p /var/lib/zerotier-one
@@ -93,7 +85,7 @@ check_zerotier() {
     echo "mkmoonworld success!"
 }
 
-check_file_server
+: # check_file_server removed (http_server.js dead code)
 check_zerotier
 
 start

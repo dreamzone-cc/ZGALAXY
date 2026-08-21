@@ -6,7 +6,8 @@ ENV TAG=${TAG}
 
 WORKDIR /app
 ADD ./entrypoint.sh /app/entrypoint.sh
-ADD ./http_server.js /app/http_server.js
+# http_server.js removed: it was never started by the entrypoint and its
+# FILE_SERVER_PORT collided with ENGINE_PORT (both 3000).
 ADD ./mkmoonworld-x86_64 /app/mkmoonworld-x86_64
 
 # init tool
@@ -58,7 +59,6 @@ ENV IP_ADDR6=''
 ENV ZT_PORT=9994
 ENV ENGINE_PORT=3000
 ENV CONSOLE_PORT=5173
-ENV FILE_SERVER_PORT=3000
 ENV TZ=Asia/Shanghai
 
 COPY --from=builder /var/lib/zerotier-one /bak/zerotier-one

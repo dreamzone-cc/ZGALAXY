@@ -144,7 +144,10 @@ const isPublicPath = (reqPath: string): boolean => {
 
 // Automated Client Installation Script Dispatcher
 app.get('/install.sh', (req: Request, res: Response) => {
-  const host = req.get('host') || 'localhost:3000';
+  // Sanitize the Host header: it is reflected into a root-run script, so an
+  // attacker-controlled value must never reach the generated installer.
+  const rawHost = req.get('host') || 'localhost:3000';
+  const host = /^[A-Za-z0-9.\-]+(:\d{1,5})?$/.test(rawHost) ? rawHost : 'localhost:3000';
   const protocol = req.protocol || 'http';
   const serverUrl = `${protocol}://${host}`;
 
@@ -174,11 +177,24 @@ curl -sSL -o "\${VAR_DIR}/planet" "${serverUrl}/api/v1/planet/download" || {
   echo "Warning: Could not download custom planet; fallback to default."
 }
 
-echo "[2/4] Verifying ZGALAXY-RS binary..."
-if [ -f "/usr/local/bin/zgalaxy-rs" ]; then
-  echo "Existing ZGALAXY-RS binary found at /usr/local/bin/zgalaxy-rs."
+echo "[2/4] Installing ZGALAXY-RS binary..."
+if [ -x "/usr/local/bin/zgalaxy-rs" ]; then
+  echo "Existing ZGALAXY-RS binary found at /usr/local/bin/zgalaxy-rs (keeping it)."
 else
-  echo "Installing ZGALAXY client tools..."
+  # Preferred: prebuilt release asset (x86_64-linux) once published.
+  if curl -fsSL -o "\${INSTALL_DIR}/zgalaxy-rs" "https://github.com/dreamzone-cc/zgalaxy-rs/releases/latest/download/zgalaxy-rs-x86_64-linux" 2>/dev/null; then
+    chmod 755 "\${INSTALL_DIR}/zgalaxy-rs"
+    echo "Installed prebuilt ZGALAXY-RS binary."
+  elif command -v cargo >/dev/null 2>&1; then
+    echo "No prebuilt binary found; building from source with cargo (this takes a few minutes)..."
+    cargo install --git https://github.com/dreamzone-cc/zgalaxy-rs --root /usr/local || {
+      echo "Error: cargo build failed. Install manually from https://github.com/dreamzone-cc/zgalaxy-rs" >&2
+      exit 1
+    }
+  else
+    echo "Warning: no prebuilt binary available and cargo not found." >&2
+    echo "Install ZGALAXY-RS manually from https://github.com/dreamzone-cc/zgalaxy-rs and re-run this installer." >&2
+  fi
 fi
 
 echo "[3/4] Registering systemd daemon..."
