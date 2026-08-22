@@ -96,16 +96,26 @@ async function migrateLegacyJson(): Promise<void> {
     if (fs.existsSync(usersPath)) {
       try {
         const users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
-        _db.exec('BEGIN');
-        try {
-          for (const u of users) {
+        // Per-row tolerant import: one malformed user (e.g. legacy lowercase
+        // role violating the CHECK) must not roll back the valid ones —
+        // otherwise their sessions become orphans on the next step.
+        let imported = 0;
+        let skipped = 0;
+        for (const u of users) {
+          try {
             insertUser.run(u.username, u.passwordHash, u.salt, u.role, u.createdAt, u.lastLoginAt || null);
+            imported++;
+          } catch {
+            skipped++;
+            console.warn(
+              `[ZGALAXY SQLITE] skipped invalid user entry '${u?.username}':`,
+              'role must be ADMIN, OPERATOR or READ_ONLY'
+            );
           }
-          _db.exec('COMMIT');
-        } catch (e) {
-          _db.exec('ROLLBACK');
-          throw e;
         }
+        console.log(
+          `[ZGALAXY SQLITE] users.json import: ${imported} imported, ${skipped} skipped (invalid)`
+        );
       } catch (e) {
         console.warn('[ZGALAXY SQLITE] Failed to import users.json:', (e as Error).message);
       }
@@ -155,8 +165,11 @@ async function migrateLegacyJson(): Promise<void> {
           continue;
         }
         try {
-          insertSession.run(s.token, s.username, s.role, s.createdAt);
-          imported++;
+          // INSERT OR IGNORE swallows CHECK/token conflicts silently —
+          // count them via the actual change count, not the absence of a throw.
+          const res = insertSession.run(s.token, s.username, s.role, s.createdAt);
+          if (res && typeof res.changes === 'number' && res.changes === 0) skipped++;
+          else imported++;
         } catch {
           skipped++;
         }
