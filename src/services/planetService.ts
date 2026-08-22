@@ -166,16 +166,17 @@ export class PlanetService {
       await CliService.executeCommandArray(mkMoonWorldCmd, ['moon.json'], config.ztVarPath);
     } catch (cmdErr: any) {
       // Honest failure: never write a placeholder and claim success when the
-      // real ZeroTier CLI tooling is unavailable (P1-1.2 / M4).
+      // tooling is unavailable (P1-1.2 / M4). idtool/mkmoonworld are provided
+      // natively by the zgalaxy-rs binary (symlinked under the classic
+      // zerotier-idtool / mkmoonworld-x86_64 names) — no ZeroTier C++ tools.
       throw new Error(
-        `Planet build failed: ZeroTier CLI tools are required (${cmdErr.message}). ` +
-          `Install zerotier-idtool and mkmoonworld-x86_64 to build a signed planet.`
+        `Planet build failed: the zgalaxy-rs client binary is required (${cmdErr.message}).`
       );
     }
 
     if (!(await FileManager.fileExists(generatedWorldBin))) {
       throw new Error(
-        'Planet build failed: zerotier-idtool/mkmoonworld did not produce world.bin. Check the CLI tools installation.'
+        'Planet build failed: zgalaxy-rs did not produce world.bin. Check the zerotier-idtool / mkmoonworld symlinks.'
       );
     }
     await FileManager.copyFile(generatedWorldBin, targetPlanetPath);

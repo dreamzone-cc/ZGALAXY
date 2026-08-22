@@ -1,37 +1,27 @@
+# zgalaxy-rs client builder — the native Rust replacement for the ZeroTier
+# C++ client. One static musl binary provides zerotier-one / zerotier-cli /
+# zerotier-idtool / mkmoonworld behavior (argv0 dispatch in zgalaxy-rs).
+FROM rust:alpine AS ztclient
+RUN apk add --no-cache git musl-dev
+ARG ZGRS_REPO=https://github.com/dreamzone-cc/zgalaxy-rs.git
+ARG ZGRS_REF=main
+RUN git clone --depth 1 "${ZGRS_REPO}" /src \
+    && cd /src \
+    && (git fetch --depth 1 origin "${ZGRS_REF}" && git checkout FETCH_HEAD || true) \
+    && cargo build --release
+
 FROM alpine:3.14 as builder
 
 ENV TZ=Asia/Shanghai
-ARG TAG=main
-ENV TAG=${TAG}
 
 WORKDIR /app
 ADD ./entrypoint.sh /app/entrypoint.sh
-# http_server.js removed: it was never started by the entrypoint and its
-# FILE_SERVER_PORT collided with ENGINE_PORT (both 3000).
-ADD ./mkmoonworld-x86_64 /app/mkmoonworld-x86_64
 
 # init tool
 RUN set -x\
     && apk update\
     && apk add --no-cache git python3 npm make g++ linux-headers curl pkgconfig openssl-dev  jq build-base  gcc \
     && echo "env prepare success!"
-
-# make zerotier-one
-RUN set -x\
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y\
-    && source "$HOME/.cargo/env"\
-    && git clone https://github.com/zerotier/ZeroTierOne.git\
-    && cd ZeroTierOne\
-    && git checkout ${TAG}\
-    && echo "切换到tag:${TAG}"\
-    && make ZT_SYMLINK=1 \
-    && make\
-    && make install\
-    && echo "make success!"\
-    ; zerotier-one -d  \
-    ; sleep 5s && ps -ef |grep zerotier-one |grep -v grep |awk '{print $1}' |xargs kill -9\
-    && echo "zerotier-one init success!"
-
 
 # make zerotier-planet-moon-engine
 ADD ./package.json /app/package.json
@@ -61,13 +51,11 @@ ENV ENGINE_PORT=3000
 ENV CONSOLE_PORT=5173
 ENV TZ=Asia/Shanghai
 
-COPY --from=builder /var/lib/zerotier-one /bak/zerotier-one
-
-COPY --from=builder /app/ZeroTierOne/zerotier-one /usr/sbin/zerotier-one
-COPY --from=builder /app/ZeroTierOne/zerotier-idtool /usr/sbin/zerotier-idtool
-COPY --from=builder /app/ZeroTierOne/zerotier-cli /usr/sbin/zerotier-cli
+# Single Rust binary behind the classic ZeroTier binary names. The entrypoint
+# and the engine call zerotier-idtool / mkmoonworld-x86_64 / zerotier-one
+# exactly as before — zgalaxy-rs dispatches on argv0 and subcommand.
+COPY --from=ztclient /src/target/release/zgalaxy-rs /usr/sbin/zerotier-one
 COPY --from=builder /app/entrypoint.sh /app/entrypoint.sh
-COPY --from=builder /app/mkmoonworld-x86_64 /app/mkmoonworld-x86_64
 COPY --from=builder /app/package.json /app/package.json
 COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/src /app/src
@@ -83,6 +71,10 @@ RUN set -x ;sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /et
     && curl -fsSL https://bun.sh/install | bash \
     && mkdir -p /app/config /app/web-console \
     && ln -sf ~/.bun/bin/bun /usr/local/bin/bun \
+    && ln -sf /usr/sbin/zerotier-one /usr/sbin/zerotier-cli \
+    && ln -sf /usr/sbin/zerotier-one /usr/sbin/zerotier-idtool \
+    && ln -sf /usr/sbin/zerotier-one /app/mkmoonworld-x86_64 \
+    && ln -sf /usr/sbin/zerotier-one /usr/local/bin/zgalaxy-rs \
     && chmod +x /app/entrypoint.sh
 
 # Health check against the engine readiness endpoint.
