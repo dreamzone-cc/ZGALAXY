@@ -109,7 +109,12 @@ async function migrateLegacyJson(): Promise<void> {
       } catch (e) {
         console.warn('[ZGALAXY SQLITE] Failed to import users.json:', (e as Error).message);
       }
-    } else {
+    }
+    // Seed only when the users table is still empty after the import attempt
+    // (missing users.json OR a failed import) — never boot without a
+    // loginable admin.
+    const usersStillEmpty = ((_db.prepare('SELECT COUNT(*) AS c FROM users').get() as any).c === 0);
+    if (usersStillEmpty) {
       // Seed the same default admin the JSON store would create, but with a
       // RANDOM initial password written to a bootstrap file (never the
       // well-known default).
@@ -136,16 +141,29 @@ async function migrateLegacyJson(): Promise<void> {
   if (sessionCount.c === 0 && fs.existsSync(sessionsPath)) {
     try {
       const sessions = JSON.parse(fs.readFileSync(sessionsPath, 'utf8'));
-      _db.exec('BEGIN');
-      try {
-        for (const s of sessions) {
-          insertSession.run(s.token, s.username, s.role, s.createdAt);
+      // INSERT OR IGNORE does not cover FOREIGN KEY violations, so orphaned
+      // sessions (deleted users) must be filtered explicitly — and one bad
+      // row must not roll back the whole import (it logged everyone out).
+      const usernames = new Set(
+        (_db.prepare('SELECT username FROM users').all() as any[]).map((r) => r.username)
+      );
+      let imported = 0;
+      let skipped = 0;
+      for (const s of sessions) {
+        if (!s?.username || !usernames.has(s.username)) {
+          skipped++;
+          continue;
         }
-        _db.exec('COMMIT');
-      } catch (e) {
-        _db.exec('ROLLBACK');
-        throw e;
+        try {
+          insertSession.run(s.token, s.username, s.role, s.createdAt);
+          imported++;
+        } catch {
+          skipped++;
+        }
       }
+      console.log(
+        `[ZGALAXY SQLITE] sessions.json import: ${imported} imported, ${skipped} skipped (orphaned/invalid)`
+      );
     } catch (e) {
       console.warn('[ZGALAXY SQLITE] Failed to import sessions.json:', (e as Error).message);
     }

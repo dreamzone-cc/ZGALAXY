@@ -129,7 +129,8 @@ const isPublicPath = (reqPath: string): boolean => {
   return (
     normalized === '/api/v1/health' ||
     normalized === '/api/v1/ready' ||
-    normalized === '/api/v1/metrics' ||
+    // /api/v1/metrics removed from public paths (audit fix): exposes
+    // process memory/CPU/uptime to anonymous callers.
     normalized === '/api/v1/auth/login' ||
     normalized === '/api/v1/federation/handshake' ||
     normalized === '/api/v1/planet/download' ||
@@ -207,6 +208,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/zgalaxy-rs
+WorkingDirectory=/var/lib/zerotier-one
 Restart=always
 RestartSec=3
 LimitNOFILE=65536
