@@ -12,7 +12,10 @@ export interface ClusterNode {
   ip6?: string;
   domain?: string;
   port: number;
+  /** Remote root's full public identity ("<addr>:0:<pub>") — required for
+   *  honest unified multi-root planet builds (ج1). */
   identityPublic?: string;
+  apiPort?: number;
   status: 'ONLINE' | 'OFFLINE' | 'SYNCING';
   isLocal: boolean;
   lastSyncedAt: string;
@@ -71,6 +74,33 @@ export class ClusterService {
       return body && body.status === 'ok';
     } catch {
       return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * ج1: best-effort capture of a remote root's PUBLIC identity via its engine
+   * (`GET /api/v1/identity/public`). Non-fatal: unified builds fail loudly
+   * later with actionable guidance when an identity is missing.
+   */
+  private static async fetchPublicIdentity(host: string, apiPort: number): Promise<{ identityPublic?: string }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    try {
+      const res = await fetch(`http://${host}:${apiPort}/api/v1/identity/public`, {
+        signal: controller.signal,
+      });
+      if (!res.ok) return {};
+      const body: any = await res.json();
+      const ident = body?.data?.publicIdentity;
+      const addr = body?.data?.address;
+      if (typeof ident === 'string' && ident.startsWith(`${addr}:`)) {
+        return { identityPublic: ident };
+      }
+      return {};
+    } catch {
+      return {};
     } finally {
       clearTimeout(timer);
     }
@@ -145,15 +175,29 @@ export class ClusterService {
     // reachability so a just-added unreachable node cannot be baked into a
     // unified planet as if it were ONLINE.
     let probedStatus: ClusterNode['status'];
+    let fetchedIdentity: { identityPublic?: string } = {};
     if (node.isLocal) {
       const localInfo = await PlanetService.getPlanetInfo();
       probedStatus = localInfo.planetExists ? 'ONLINE' : 'OFFLINE';
+      // Local root: its public identity is on disk.
+      const publicIdPath = path.join(config.ztVarPath, 'identity.public');
+      if (await FileManager.fileExists(publicIdPath)) {
+        fetchedIdentity = {
+          identityPublic: (await FileManager.readText(publicIdPath)).trim(),
+        };
+      }
     } else {
       probedStatus = (await this.probeNodeHealth(node)) ? 'ONLINE' : 'OFFLINE';
+      // ج1: capture remote public identity while we can reach the peer.
+      const host = node.domain || node.ip4;
+      if (probedStatus === 'ONLINE' && host) {
+        fetchedIdentity = await this.fetchPublicIdentity(host, config.port);
+      }
     }
 
     const newNode: ClusterNode = {
       ...node,
+      identityPublic: node.identityPublic || fetchedIdentity.identityPublic,
       status: probedStatus,
       lastSyncedAt: new Date().toISOString(),
     };
@@ -230,13 +274,27 @@ export class ClusterService {
 
   public static async buildUnifiedClusterPlanet(): Promise<any> {
     const topology = await this.loadRawTopology();
-    const activeNodes = topology.nodes.filter((n: ClusterNode) => n.status === 'ONLINE');
 
-    if (activeNodes.length === 0) {
-      throw new Error('No active Planet nodes available in cluster to build unified Planet.');
+    // The LOCAL node is always eligible: it is the engine serving this very
+    // request, and the first unified build is what CREATES its planet file
+    // (so a pre-build OFFLINE probe must not deadlock bootstrap). Remote
+    // nodes still require a successful ONLINE probe.
+    const eligible: ClusterNode[] = [];
+    for (const n of topology.nodes as ClusterNode[]) {
+      if (n.isLocal) {
+        eligible.push({ ...n, status: 'ONLINE' });
+      } else if (await this.probeNodeHealth(n)) {
+        eligible.push({ ...n, status: 'ONLINE' });
+      }
     }
 
-    // Real multi-root compilation: every ONLINE node contributes a root entry.
+    if (eligible.length === 0) {
+      throw new Error('No active Planet nodes available in cluster to build unified Planet.');
+    }
+    const activeNodes = eligible;
+
+    // Real multi-root compilation: every eligible node contributes a root entry,
+    // carrying each node's OWN public identity (ج1).
     const buildResult = await PlanetService.buildMultiRootPlanet(
       activeNodes.map((n: ClusterNode) => ({
         nodeId: n.nodeId,
@@ -245,6 +303,7 @@ export class ClusterService {
         domain: n.domain,
         port: n.port,
         isLocal: n.isLocal,
+        identityPublic: n.identityPublic,
       }))
     );
 

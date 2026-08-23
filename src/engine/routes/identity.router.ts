@@ -4,6 +4,16 @@ import { requireRole } from '../rbac';
 
 export const identityRouter = Router();
 
+// Public identity facts (address + public key string) — no secrets, no auth.
+// Federation peers need this to compose honest multi-root planets.
+identityRouter.get('/public', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await IdentityService.getPublicIdentity() });
+  } catch (err) {
+    next(err);
+  }
+});
+
 identityRouter.get('/status', async (req, res, next) => {
   try {
     const status = await IdentityService.getIdentityStatus();

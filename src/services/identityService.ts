@@ -6,6 +6,25 @@ import { FileManager } from './fileManager';
 import { PlanetService } from './planetService';
 
 export class IdentityService {
+  /**
+   * Public identity facts (safe to expose without auth — identical to what
+   * every mesh peer learns during handshakes). Used by federating engines to
+   * build honest multi-root planets (ج1).
+   */
+  public static async getPublicIdentity(): Promise<any> {
+    const status = await this.getIdentityStatus();
+    let publicIdentity = '';
+    const publicIdPath = path.join(config.ztVarPath, 'identity.public');
+    if (status.publicIdentityExists && (await FileManager.fileExists(publicIdPath))) {
+      publicIdentity = (await FileManager.readText(publicIdPath)).trim();
+    }
+    return {
+      address: status.nodeAddress,
+      publicIdentity,
+      certificateStatus: status.certificateStatus,
+    };
+  }
+
   public static async getIdentityStatus(): Promise<any> {
     const publicIdPath = path.join(config.ztVarPath, 'identity.public');
     const secretIdPath = path.join(config.ztVarPath, 'identity.secret');

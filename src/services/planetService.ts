@@ -17,6 +17,7 @@ export interface PlanetBuildConfig {
 
 export interface PlanetRootNode {
   nodeId: string;
+  identityPublic?: string;
   ip4?: string;
   ip6?: string;
   domain?: string;
@@ -37,7 +38,16 @@ export class PlanetService {
     const ip6 = (await FileManager.fileExists(ip6File)) ? await FileManager.readText(ip6File) : '';
     const domain = (await FileManager.fileExists(domainFile)) ? await FileManager.readText(domainFile) : '';
 
+    // ج2: the node's own 10-hex ZeroTier address (from identity.public).
+    let nodeAddress = '';
+    const publicIdPath = path.join(config.ztVarPath, 'identity.public');
+    if (await FileManager.fileExists(publicIdPath)) {
+      const addr = (await FileManager.readText(publicIdPath)).split(':')[0]?.trim() || '';
+      if (/^[0-9a-fA-F]{10}$/.test(addr)) nodeAddress = addr;
+    }
+
     return {
+      nodeAddress,
       planetExists: exists,
       planetPath: exists ? planetPath : null,
       ip4: ip4.trim(),
@@ -338,21 +348,35 @@ export class PlanetService {
     const moonData: any = await this.ensureMoonJsonKeys();
     moonData.objtype = 'moon';
 
+    // ج1: EVERY root carries ITS OWN public identity. Reusing the local
+    // identity for remote roots collapses them into one node client-side —
+    // functional HA requires distinct, verified identities per root.
     const publicIdPath = path.join(config.ztVarPath, 'identity.public');
     let localIdentityStr = '';
     if (await FileManager.fileExists(publicIdPath)) {
       localIdentityStr = (await FileManager.readText(publicIdPath)).trim();
     }
-    const defaultRootIdentity = (moonData.roots && moonData.roots[0]?.identity) || localIdentityStr;
+    const localAddr = localIdentityStr.split(':')[0]?.trim() || '';
 
-    const formattedRoots = rootEntries.map((r, idx) => {
-      const isLocalRoot = (localIdentityStr && localIdentityStr.startsWith(r.id)) || idx === 0;
-      const ident = isLocalRoot ? (localIdentityStr || defaultRootIdentity) : defaultRootIdentity;
-      return {
-        identity: ident,
-        stableEndpoints: r.stableEndpoints,
-      };
+    const missing: string[] = [];
+    const formattedRoots = rootEntries.map((r) => {
+      if (localAddr && r.id.toLowerCase() === localAddr.toLowerCase()) {
+        return { identity: localIdentityStr, stableEndpoints: r.stableEndpoints };
+      }
+      const ident = (r as any).identityPublic as string | undefined;
+      if (!ident || !ident.startsWith(`${r.id}:`)) {
+        missing.push(`${r.id} (${(r as any).domain || (r as any).ip4 || 'unknown'})`);
+        return { identity: '', stableEndpoints: r.stableEndpoints };
+      }
+      return { identity: ident, stableEndpoints: r.stableEndpoints };
     });
+    if (missing.length > 0) {
+      throw new Error(
+        'Cannot build a unified Planet: the following roots have no recorded public identity: ' +
+          missing.join(', ') +
+          '. Re-add them with identityPublic (fetched from their /api/v1/identity/public).'
+      );
+    }
 
     moonData.roots = formattedRoots;
     await FileManager.writeJson(moonJsonPath, moonData);

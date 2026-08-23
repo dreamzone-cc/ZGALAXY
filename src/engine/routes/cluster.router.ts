@@ -17,7 +17,11 @@ clusterRouter.get('/status', async (req: Request, res: Response, next: NextFunct
 // POST /api/v1/cluster/nodes/add - Add/Register a Planet node into the cluster
 clusterRouter.post('/nodes/add', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { nodeId, name, ip4, ip6, domain, port, isLocal } = req.body;
+    const { nodeId, name, ip4, ip6, domain, port, isLocal, identityPublic } = req.body;
+    if (identityPublic !== undefined && typeof identityPublic !== 'string') {
+      res.status(400).json({ success: false, error: 'identityPublic must be a string.' });
+      return;
+    }
     if (!nodeId || !ip4) {
       res.status(400).json({ success: false, error: 'nodeId and ip4 are required fields.' });
       return;
@@ -31,6 +35,9 @@ clusterRouter.post('/nodes/add', requireRole('ADMIN', 'OPERATOR'), async (req: R
       domain: domain || '',
       port: port || 9994,
       // status is probed inside addNode (no caller-supplied ONLINE).
+      // ج1: optional operator-supplied public identity (auto-captured from a
+      // reachable remote otherwise).
+      identityPublic: typeof identityPublic === 'string' ? identityPublic : undefined,
       isLocal: !!isLocal,
     });
 

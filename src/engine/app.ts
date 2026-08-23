@@ -133,6 +133,7 @@ const isPublicPath = (reqPath: string): boolean => {
     // process memory/CPU/uptime to anonymous callers.
     normalized === '/api/v1/auth/login' ||
     normalized === '/api/v1/federation/handshake' ||
+    normalized === '/api/v1/identity/public' ||
     normalized === '/api/v1/planet/download' ||
     normalized === '/install.sh' ||
     normalized === '/install.ps1' ||
