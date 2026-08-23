@@ -260,3 +260,10 @@ npm test
   26+1skip بدونها.
 - **إصلاح عابر للمستودعين**: أُضيف `idtool validate` إلى zgalaxy-rs (كان B1
   سينكسر مع الثنائية الجديدة)، وrc=2 لسوء استخدام CLI عبر argv0.
+
+
+---
+
+> 📌 **استئناف الجلسات**: الدليل المركزي المحدّث في مستودع العميل:
+> `zgalaxy-rs/docs/CONTINUE_HERE.md` + `docs/PENDING_WORK.md` +
+> `docs/SESSION-LOG-2026-08-22.md` — يغطيان حالة المحرك والعميل معاً.
