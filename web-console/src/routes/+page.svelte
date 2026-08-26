@@ -1863,8 +1863,10 @@
 									<input id="syncTokenMaxDevicesInput" type="number" class="tui-input" bind:value={newSyncTokenMaxDevices} min="1" max="1000" disabled={newSyncTokenType === 'single'} style="margin-top: 4px;" />
 								</div>
 								<div>
-									<label for="syncTokenExpiryInput" style="color: var(--accent-gold); font-size: 12px;">[ EXPIRATION (DAYS) ]</label>
-									<input id="syncTokenExpiryInput" type="number" class="tui-input" bind:value={newSyncTokenExpiryDays} min="1" max="3650" style="margin-top: 4px;" />
+									<label for="syncTokenExpiryInput" style="color: var(--accent-gold); font-size: 12px;">
+										[ EXPIRATION (DAYS) ] {#if newSyncTokenType === 'contract'}<span style="color: var(--text-muted); font-size: 11px;">(FIXED / DISABLED FOR CONTRACT)</span>{/if}
+									</label>
+									<input id="syncTokenExpiryInput" type="number" class="tui-input" bind:value={newSyncTokenExpiryDays} min="1" max="3650" disabled={newSyncTokenType === 'contract'} style="margin-top: 4px; {newSyncTokenType === 'contract' ? 'opacity: 0.5; cursor: not-allowed;' : ''}" />
 								</div>
 							</div>
 							<div style="margin-top: 12px; text-align: right;">
