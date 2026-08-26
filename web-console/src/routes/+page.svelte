@@ -94,6 +94,13 @@
 	let clientInstallCopied = $state(false);
 	let backupRestorePath = $state('');
 
+	// Client Dynamic Sync & Access Tokens State
+	let clientSyncTokensList = $state<any[]>([]);
+	let newSyncTokenName = $state('');
+	let newSyncTokenType = $state<'single' | 'group' | 'contract'>('single');
+	let newSyncTokenMaxDevices = $state(1);
+	let newSyncTokenExpiryDays = $state(30);
+
 	function copyToClipboard(text: string) {
 		if (typeof navigator !== 'undefined' && navigator.clipboard) {
 			navigator.clipboard.writeText(text);
@@ -184,6 +191,7 @@
 		membersList = [];
 		fedTokensList = [];
 		fedPeersList = [];
+		clientSyncTokensList = [];
 		clusterNodesList = [];
 		moonsList = [];
 		planetInfo = null;
@@ -388,6 +396,55 @@
 			showCustomAlert('[ MESH PROPAGATED ]', 'Mesh topology propagation completed across active peers.');
 			await fetchFederationPeers();
 		}
+	}
+
+	// Client Sync & Access Tokens Methods
+	async function fetchClientSyncTokens() {
+		const res = await apiRequest('/api/v1/sync/tokens');
+		if (res && res.success && Array.isArray(res.data)) {
+			clientSyncTokensList = res.data;
+		}
+	}
+
+	async function handleCreateClientSyncToken() {
+		if (!newSyncTokenName.trim()) {
+			showCustomAlert('[ INPUT REQUIRED ]', 'Please enter a name for the Client Sync Token.');
+			return;
+		}
+		logMessage(`[ ACTION ] Generating new Client Sync Token '${newSyncTokenName}' [TYPE: ${newSyncTokenType}]...`);
+		const res = await apiRequest('/api/v1/sync/tokens/create', 'POST', {
+			name: newSyncTokenName.trim(),
+			tokenType: newSyncTokenType,
+			maxDevices: newSyncTokenType === 'single' ? 1 : newSyncTokenMaxDevices,
+			expiresInDays: newSyncTokenExpiryDays,
+		});
+		if (res && res.success && res.data) {
+			newSyncTokenName = '';
+			showCustomAlert(
+				'[ CLIENT SYNC TOKEN CREATED ]',
+				`Client Sync Token '${res.data.name}' created successfully!\n\nTOKEN SECRET:\n${res.data.tokenSecret}\n\n(Share this token with the client to enter in Preferences -> ZGALAXY Sync)`
+			);
+			await fetchClientSyncTokens();
+		} else {
+			showCustomAlert('[ ERROR ]', res?.error || 'Failed to create Client Sync Token.');
+		}
+	}
+
+	async function handleRevokeClientSyncToken(tokenId: string) {
+		showCustomConfirm(
+			'[ CONFIRM REVOCATION ]',
+			`Are you sure you want to revoke Client Sync Token '${tokenId}'? Connected clients using this token will be disconnected from dynamic topology sync.`,
+			async () => {
+				logMessage(`[ ACTION ] Revoking Client Sync Token '${tokenId}'...`);
+				const res = await apiRequest(`/api/v1/sync/tokens/${tokenId}/revoke`, 'POST');
+				if (res && res.success) {
+					logMessage(`[ SUCCESS ] Client Sync Token '${tokenId}' revoked.`);
+					await fetchClientSyncTokens();
+				} else {
+					showCustomAlert('[ ERROR ]', res?.error || 'Failed to revoke Client Sync Token.');
+				}
+			}
+		);
 	}
 
 	// Multi-Planet Cluster Federation Methods
@@ -915,6 +972,7 @@
 			fetchClusterTopology(),
 			fetchFederationTokens(),
 			fetchFederationPeers(),
+			fetchClientSyncTokens(),
 			fetchDDNSStatus(),
 			fetchCloudflareConfig(),
 			fetchCloudflareLogs(),
@@ -1064,6 +1122,7 @@
 				<div style="margin-top: 12px;">
 					<select class="tui-input" aria-label="Quick navigation to dashboard panels" onchange={(e) => { jumpToPanel((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
 						<option value="">-- [ QUICK NAVIGATE TO PANEL ] --</option>
+						<option value="panel-sync-tokens">CLIENT SYNC & ACCESS TOKENS</option>
 						<option value="panel-client-hub">SOVEREIGN RUST CLIENT</option>
 						<option value="panel-federation">FEDERATION & TOKENS</option>
 						<option value="panel-cluster">CLUSTER HA</option>
@@ -1759,6 +1818,117 @@
 						</div>
 					{/if}
 				</div>
+			</div>
+		</div>
+
+		<!-- CLIENT DYNAMIC SYNC & ACCESS TOKENS PANEL -->
+		<div class="tui-box" id="panel-sync-tokens">
+			<div class="tui-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+				<div>┌── [ ZGALAXY CLIENT DYNAMIC SYNC & ACCESS TOKENS ]</div>
+				<div>
+					<span class="tui-badge tui-badge-ok">[ ED25519 VERIFIED ]</span>
+					<span class="tui-badge" style="border-color: var(--accent-gold); color: var(--accent-gold);">[ DEVICE-BOUND QUOTA ]</span>
+				</div>
+			</div>
+			<div class="tui-body">
+				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+					<div style="font-size: 13px; color: var(--text-muted);">
+						Issue cryptographically signed capability tokens allowing sovereign <span style="color: var(--accent-gold);">zgalaxy-rs</span> clients to dynamically discover, validate, and atomically synchronize Planet and Moon topology files.
+					</div>
+					<button class="tui-btn" onclick={fetchClientSyncTokens}>[ REFRESH TOKENS ]</button>
+				</div>
+
+				{#if currentUserRole === 'ADMIN' || currentUserRole === 'OPERATOR'}
+					<!-- Generate Client Sync Token Form -->
+					<div class="tui-box" style="margin-bottom: 16px; background: rgba(0,0,0,0.25);">
+						<div class="tui-header" style="font-size: 12px;">┌── [ ISSUE NEW CLIENT SYNC TOKEN ]</div>
+						<div class="tui-body">
+							<div class="grid-2">
+								<div>
+									<label for="syncTokenNameInput" style="color: var(--accent-gold); font-size: 12px;">[ TOKEN NAME / CLIENT IDENTIFIER ]</label>
+									<input id="syncTokenNameInput" type="text" class="tui-input" bind:value={newSyncTokenName} placeholder="e.g. Alice Laptop / Office Fleet" style="margin-top: 4px;" />
+								</div>
+								<div>
+									<label for="syncTokenTypeSelect" style="color: var(--accent-gold); font-size: 12px;">[ TOKEN TYPE / QUOTA MODE ]</label>
+									<select id="syncTokenTypeSelect" class="tui-input" bind:value={newSyncTokenType} style="margin-top: 4px;">
+										<option value="single">SINGLE DEVICE (Max 1 Device Quota)</option>
+										<option value="group">GROUP FLEET (Multi-Device Quota)</option>
+										<option value="contract">CONTRACT (Time-Limited Subscription)</option>
+									</select>
+								</div>
+							</div>
+							<div class="grid-2" style="margin-top: 10px;">
+								<div>
+									<label for="syncTokenMaxDevicesInput" style="color: var(--accent-gold); font-size: 12px;">[ MAX ALLOWED DEVICES ]</label>
+									<input id="syncTokenMaxDevicesInput" type="number" class="tui-input" bind:value={newSyncTokenMaxDevices} min="1" max="1000" disabled={newSyncTokenType === 'single'} style="margin-top: 4px;" />
+								</div>
+								<div>
+									<label for="syncTokenExpiryInput" style="color: var(--accent-gold); font-size: 12px;">[ EXPIRATION (DAYS) ]</label>
+									<input id="syncTokenExpiryInput" type="number" class="tui-input" bind:value={newSyncTokenExpiryDays} min="1" max="3650" style="margin-top: 4px;" />
+								</div>
+							</div>
+							<div style="margin-top: 12px; text-align: right;">
+								<button class="tui-btn tui-btn-success" onclick={handleCreateClientSyncToken} style="width: 100%;">
+									[ ISSUE SIGNED CLIENT SYNC TOKEN ]
+								</button>
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				<!-- Active Client Sync Tokens Table -->
+				<div style="font-weight: bold; color: var(--accent-gold); margin-bottom: 6px;">[ ACTIVE CLIENT SYNC TOKENS ]</div>
+				{#if clientSyncTokensList.length === 0}
+					<div style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">No Client Sync Tokens generated yet. Create one above to allow clients to connect.</div>
+				{:else}
+					<div style="margin-bottom: 16px; max-height: 220px; overflow-y: auto;">
+						<div class="tui-table-wrap">
+						<table class="tui-table">
+							<thead>
+								<tr>
+									<th>TOKEN ID</th>
+									<th>NAME</th>
+									<th>TYPE</th>
+									<th>DEVICE QUOTA</th>
+									<th>EXPIRES AT</th>
+									<th>STATUS</th>
+									<th>ACTIONS</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each clientSyncTokensList as tok}
+									<tr>
+										<td style="color: var(--accent-gold); font-weight: bold;">{tok.tokenId}</td>
+										<td>{tok.name}</td>
+										<td>
+											<span class="tui-badge {tok.tokenType === 'single' ? 'tui-badge-ok' : tok.tokenType === 'group' ? 'tui-badge-warn' : ''}">
+												[{tok.tokenType.toUpperCase()}]
+											</span>
+										</td>
+										<td>{tok.registeredDevices ? tok.registeredDevices.length : 0} / {tok.maxDevices}</td>
+										<td style="font-size: 11px;">{tok.expiresAt.substring(0, 10)}</td>
+										<td>
+											<span class="tui-badge {tok.status === 'ACTIVE' ? 'tui-badge-ok' : tok.status === 'EXPIRED' ? 'tui-badge-warn' : 'tui-badge-error'}">
+												[{tok.status}]
+											</span>
+										</td>
+										<td>
+											<div style="display: flex; gap: 4px;">
+												<button class="tui-btn" onclick={() => showCustomAlert('[ CLIENT TOKEN SECRET ]', `TOKEN SECRET:\n${tok.tokenSecret || tok.tokenSecretMasked}\n\nPaste this token in the zgalaxy-rs client under Preferences -> ZGALAXY Sync.`)} style="padding: 2px 6px; font-size: 11px;">[ VIEW SECRET ]</button>
+												{#if currentUserRole === 'ADMIN' || currentUserRole === 'OPERATOR'}
+													{#if tok.status === 'ACTIVE'}
+														<button class="tui-btn tui-btn-danger" onclick={() => handleRevokeClientSyncToken(tok.tokenId)} style="padding: 2px 6px; font-size: 11px;">[ REVOKE ]</button>
+													{/if}
+												{/if}
+											</div>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+						</div>
+					</div>
+				{/if}
 			</div>
 		</div>
 
