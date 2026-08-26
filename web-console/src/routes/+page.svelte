@@ -407,13 +407,10 @@
 	}
 
 	async function handleCreateClientSyncToken() {
-		if (!newSyncTokenName.trim()) {
-			showCustomAlert('[ INPUT REQUIRED ]', 'Please enter a name for the Client Sync Token.');
-			return;
-		}
-		logMessage(`[ ACTION ] Generating new Client Sync Token '${newSyncTokenName}' [TYPE: ${newSyncTokenType}]...`);
+		const tokenName = newSyncTokenName.trim();
+		logMessage(`[ ACTION ] Generating new Client Sync Token ${tokenName ? `'${tokenName}'` : '(Auto-Named)'} [TYPE: ${newSyncTokenType}]...`);
 		const res = await apiRequest('/api/v1/sync/tokens/create', 'POST', {
-			name: newSyncTokenName.trim(),
+			name: tokenName || undefined,
 			tokenType: newSyncTokenType,
 			maxDevices: newSyncTokenType === 'single' ? 1 : newSyncTokenMaxDevices,
 			expiresInDays: newSyncTokenExpiryDays,
@@ -1845,8 +1842,10 @@
 						<div class="tui-body">
 							<div class="grid-2">
 								<div>
-									<label for="syncTokenNameInput" style="color: var(--accent-gold); font-size: 12px;">[ TOKEN NAME / CLIENT IDENTIFIER ]</label>
-									<input id="syncTokenNameInput" type="text" class="tui-input" bind:value={newSyncTokenName} placeholder="e.g. Alice Laptop / Office Fleet" style="margin-top: 4px;" />
+									<label for="syncTokenNameInput" style="color: var(--accent-gold); font-size: 12px;">
+										[ TOKEN NAME / CLIENT IDENTIFIER ] <span style="color: var(--text-muted); font-size: 11px;">(OPTIONAL)</span>
+									</label>
+									<input id="syncTokenNameInput" type="text" class="tui-input" bind:value={newSyncTokenName} placeholder="Optional, e.g. Alice Laptop (auto-generated if empty)" style="margin-top: 4px;" />
 								</div>
 								<div>
 									<label for="syncTokenTypeSelect" style="color: var(--accent-gold); font-size: 12px;">[ TOKEN TYPE / QUOTA MODE ]</label>

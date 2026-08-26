@@ -20,7 +20,7 @@ export interface SyncToken {
 }
 
 export interface CreateSyncTokenInput {
-  name: string;
+  name?: string;
   tokenType?: SyncTokenType;
   maxDevices?: number;
   scope?: string[];
@@ -73,11 +73,8 @@ export class SyncTokenService {
   }
 
   public static async createToken(input: CreateSyncTokenInput): Promise<SyncToken> {
-    if (!input.name || input.name.trim().length === 0) {
-      throw new Error('Token name is required.');
-    }
-
     const tokenType = input.tokenType || 'single';
+    const finalName = (input.name && input.name.trim()) || `Client-${tokenType.toUpperCase()}-${crypto.randomBytes(3).toString('hex')}`;
     let maxDevices = 1;
     let days = 30;
 
@@ -103,7 +100,7 @@ export class SyncTokenService {
     const newToken: SyncToken = {
       tokenId,
       tokenSecret,
-      name: input.name.trim(),
+      name: finalName,
       creator,
       tokenType,
       maxDevices,
