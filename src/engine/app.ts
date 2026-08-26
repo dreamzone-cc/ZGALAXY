@@ -19,6 +19,7 @@ import { authRouter } from './routes/auth.router';
 import { cloudflareRouter } from './routes/cloudflare.router';
 import { clusterRouter } from './routes/cluster.router';
 import { federationRouter } from './routes/federation.router';
+import { syncRouter } from './routes/sync.router';
 import { UserService } from '../services/userService';
 
 export const app = express();
@@ -135,6 +136,8 @@ const isPublicPath = (reqPath: string): boolean => {
     normalized === '/api/v1/federation/handshake' ||
     normalized === '/api/v1/identity/public' ||
     normalized === '/api/v1/planet/download' ||
+    normalized === '/api/v1/sync/manifest' ||
+    (normalized.startsWith('/api/v1/sync/download/')) ||
     normalized === '/install.sh' ||
     normalized === '/install.ps1' ||
     // Moon files are world artifacts (like the planet) and are fetched by
@@ -289,6 +292,7 @@ app.use('/api/v1/backup', backupRouter);
 app.use('/api/v1/network', networkRouter);
 app.use('/api/v1/domains', domainRouter);
 app.use('/api/v1/ddns', ddnsRouter);
+app.use('/api/v1/sync', syncRouter);
 
 // JSON 404 handler so unknown API paths match the {success,error} contract.
 app.use((req: Request, res: Response, next: NextFunction) => {
