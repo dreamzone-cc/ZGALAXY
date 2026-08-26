@@ -79,13 +79,20 @@ export class SyncTokenService {
 
     const tokenType = input.tokenType || 'single';
     let maxDevices = 1;
+    let days = 30;
+
     if (tokenType === 'single') {
       maxDevices = 1;
-    } else if (tokenType === 'group' || tokenType === 'contract') {
-      maxDevices = input.maxDevices !== undefined ? input.maxDevices : (tokenType === 'group' ? 5 : 50);
+      days = input.expiresInDays && input.expiresInDays > 0 ? input.expiresInDays : 30;
+    } else if (tokenType === 'group') {
+      maxDevices = input.maxDevices !== undefined && input.maxDevices > 0 ? input.maxDevices : 5;
+      days = input.expiresInDays && input.expiresInDays > 0 ? input.expiresInDays : 30;
+    } else if (tokenType === 'contract') {
+      // CONTRACT policy: Fixed 365-day (1-year) contractual term; overrides and ignores arbitrary duration overrides
+      maxDevices = input.maxDevices !== undefined && input.maxDevices > 0 ? input.maxDevices : 50;
+      days = 365;
     }
 
-    const days = input.expiresInDays || 365;
     const creator = (input.creator && input.creator.trim()) || 'admin';
     const store = await this.loadTokensStore();
 

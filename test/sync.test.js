@@ -132,3 +132,24 @@ test('Revoked token is rejected immediately (403)', async () => {
   const res = await syncReq('GET', '/api/v1/sync/manifest', { token: token.tokenSecret });
   assert.strictEqual(res.status, 403);
 });
+
+test('Backend enforces CONTRACT 365-day fixed duration and SINGLE 1-device limit', async () => {
+  // Test CONTRACT mode with arbitrary expiresInDays: 7
+  const contractTok = await SyncTokenService.createToken({
+    name: 'Contract Test Token',
+    tokenType: 'contract',
+    expiresInDays: 7,
+  });
+  const now = Date.now();
+  const expTime = new Date(contractTok.expiresAt).getTime();
+  const diffDays = Math.round((expTime - now) / (24 * 60 * 60 * 1000));
+  assert.strictEqual(diffDays, 365, 'CONTRACT mode must enforce exactly 365 days regardless of input');
+
+  // Test SINGLE mode with arbitrary maxDevices: 100
+  const singleTok = await SyncTokenService.createToken({
+    name: 'Single Test Token',
+    tokenType: 'single',
+    maxDevices: 100,
+  });
+  assert.strictEqual(singleTok.maxDevices, 1, 'SINGLE mode must enforce exactly 1 device');
+});
