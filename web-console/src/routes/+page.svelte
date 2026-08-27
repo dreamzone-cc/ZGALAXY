@@ -444,6 +444,64 @@
 		);
 	}
 
+	async function handleDeleteClientSyncToken(tokenId: string) {
+		showCustomConfirm(
+			'[ CONFIRM PERMANENT DELETION ]',
+			`Are you sure you want to permanently delete Client Sync Token '${tokenId}' from the system? This action cannot be undone.`,
+			async () => {
+				logMessage(`[ ACTION ] Deleting Client Sync Token '${tokenId}'...`);
+				const res = await apiRequest(`/api/v1/sync/tokens/${tokenId}`, 'DELETE');
+				if (res && res.success) {
+					logMessage(`[ SUCCESS ] Client Sync Token '${tokenId}' deleted.`);
+					await fetchClientSyncTokens();
+				} else {
+					showCustomAlert('[ ERROR ]', res?.error || 'Failed to delete Client Sync Token.');
+				}
+			}
+		);
+	}
+
+	async function handlePurgeRevokedTokens() {
+		showCustomConfirm(
+			'[ PURGE ALL REVOKED TOKENS ]',
+			'Are you sure you want to permanently remove all REVOKED Client Sync Tokens from the system?',
+			async () => {
+				logMessage('[ ACTION ] Purging all revoked Client Sync Tokens...');
+				const res = await apiRequest('/api/v1/sync/tokens/purge-revoked', 'POST');
+				if (res && res.success) {
+					logMessage(`[ SUCCESS ] ${res.message || 'Revoked tokens purged.'}`);
+					await fetchClientSyncTokens();
+				} else {
+					showCustomAlert('[ ERROR ]', res?.error || 'Failed to purge revoked tokens.');
+				}
+			}
+		);
+	}
+
+	function showTokenDeviceDetails(tok: any) {
+		if (!tok.registeredDevices || tok.registeredDevices.length === 0) {
+			showCustomAlert(
+				'[ DEVICE BINDING STATUS ]',
+				`Token: ${tok.name} (${tok.tokenId})\nType: ${tok.tokenType.toUpperCase()}\nStatus: ${tok.status}\n\nNo client devices have connected or bound to this token yet.\n\nWhen a client connects, it will be cryptographically registered here.`
+			);
+			return;
+		}
+
+		let detailsText = `Token: ${tok.name} (${tok.tokenId})\nType: ${tok.tokenType.toUpperCase()}\nRegistered Devices: ${tok.registeredDevices.length} / ${tok.maxDevices}\n\n`;
+		tok.registeredDevices.forEach((fp: string, idx: number) => {
+			const info = tok.deviceDetails && tok.deviceDetails[fp] ? tok.deviceDetails[fp] : null;
+			detailsText += `[ Device #${idx + 1} ]\n`;
+			detailsText += `  • Fingerprint: ${fp}\n`;
+			if (info && info.nodeId) detailsText += `  • Node ID: ${info.nodeId}\n`;
+			if (info && info.ip) detailsText += `  • Remote IP: ${info.ip}\n`;
+			if (info && info.boundAt) detailsText += `  • First Bound: ${info.boundAt.replace('T', ' ').substring(0, 19)}\n`;
+			if (info && info.lastSeenAt) detailsText += `  • Last Seen: ${info.lastSeenAt.replace('T', ' ').substring(0, 19)}\n`;
+			detailsText += `\n`;
+		});
+
+		showCustomAlert('[ BOUND CLIENT DEVICES ]', detailsText);
+	}
+
 	// Multi-Planet Cluster Federation Methods
 	async function fetchClusterTopology() {
 		const res = await apiRequest('/api/v1/cluster/status');
@@ -1878,7 +1936,14 @@
 				{/if}
 
 				<!-- Active Client Sync Tokens Table -->
-				<div style="font-weight: bold; color: var(--accent-gold); margin-bottom: 6px;">[ ACTIVE CLIENT SYNC TOKENS ]</div>
+				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 8px;">
+					<div style="font-weight: bold; color: var(--accent-gold);">[ ACTIVE CLIENT SYNC TOKENS ]</div>
+					{#if clientSyncTokensList.some(t => t.status === 'REVOKED')}
+						<button class="tui-btn tui-btn-danger" onclick={handlePurgeRevokedTokens} style="padding: 2px 8px; font-size: 11px;">
+							[ PURGE ALL REVOKED ]
+						</button>
+					{/if}
+				</div>
 				{#if clientSyncTokensList.length === 0}
 					<div style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">No Client Sync Tokens generated yet. Create one above to allow clients to connect.</div>
 				{:else}
@@ -1890,7 +1955,7 @@
 									<th>TOKEN ID</th>
 									<th>NAME</th>
 									<th>TYPE</th>
-									<th>DEVICE QUOTA</th>
+									<th>DEVICE BINDING / QUOTA</th>
 									<th>EXPIRES AT</th>
 									<th>STATUS</th>
 									<th>ACTIONS</th>
@@ -1906,7 +1971,19 @@
 												[{tok.tokenType.toUpperCase()}]
 											</span>
 										</td>
-										<td>{tok.registeredDevices ? tok.registeredDevices.length : 0} / {tok.maxDevices}</td>
+										<td>
+											<button class="tui-btn" onclick={() => showTokenDeviceDetails(tok)} style="padding: 2px 6px; font-size: 11px; text-align: left;" title="Click to view bound client devices">
+												{#if tok.tokenType === 'single'}
+													{#if tok.registeredDevices && tok.registeredDevices.length > 0}
+														<span style="color: var(--accent-gold);">🔒 Bound ({tok.deviceDetails && tok.deviceDetails[tok.registeredDevices[0]]?.nodeId ? tok.deviceDetails[tok.registeredDevices[0]].nodeId : '1/1'})</span>
+													{:else}
+														<span style="color: var(--text-muted);">⚪ Unused (0/1)</span>
+													{/if}
+												{:else}
+													<span>👥 {tok.registeredDevices ? tok.registeredDevices.length : 0} / {tok.maxDevices}</span>
+												{/if}
+											</button>
+										</td>
 										<td style="font-size: 11px;">{tok.expiresAt.substring(0, 10)}</td>
 										<td>
 											<span class="tui-badge {tok.status === 'ACTIVE' ? 'tui-badge-ok' : tok.status === 'EXPIRED' ? 'tui-badge-warn' : 'tui-badge-error'}">
@@ -1914,12 +1991,14 @@
 											</span>
 										</td>
 										<td>
-											<div style="display: flex; gap: 4px;">
+											<div style="display: flex; gap: 4px; flex-wrap: wrap;">
 												<button class="tui-btn" onclick={() => showCustomAlert('[ CLIENT TOKEN SECRET ]', `TOKEN SECRET:\n${tok.tokenSecret || tok.tokenSecretMasked}\n\nPaste this token in the zgalaxy-rs client under Preferences -> ZGALAXY Sync.`)} style="padding: 2px 6px; font-size: 11px;">[ VIEW SECRET ]</button>
+												<button class="tui-btn" onclick={() => showTokenDeviceDetails(tok)} style="padding: 2px 6px; font-size: 11px;">[ DEVICES ]</button>
 												{#if currentUserRole === 'ADMIN' || currentUserRole === 'OPERATOR'}
 													{#if tok.status === 'ACTIVE'}
-														<button class="tui-btn tui-btn-danger" onclick={() => handleRevokeClientSyncToken(tok.tokenId)} style="padding: 2px 6px; font-size: 11px;">[ REVOKE ]</button>
+														<button class="tui-btn" onclick={() => handleRevokeClientSyncToken(tok.tokenId)} style="padding: 2px 6px; font-size: 11px; color: #ffb86c; border-color: #ffb86c;">[ REVOKE ]</button>
 													{/if}
+													<button class="tui-btn tui-btn-danger" onclick={() => handleDeleteClientSyncToken(tok.tokenId)} style="padding: 2px 6px; font-size: 11px;">[ DELETE ]</button>
 												{/if}
 											</div>
 										</td>

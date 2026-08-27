@@ -25,8 +25,10 @@ syncRouter.get('/manifest', async (req: Request, res: Response, next: NextFuncti
   try {
     const tokenSecret = (req.headers['x-zgalaxy-signature'] as string) || '';
     const deviceFp = (req.headers['x-device-fingerprint'] as string) || '';
+    const nodeId = (req.headers['x-node-id'] as string) || '';
+    const ip = ((req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress || '').split(',')[0].trim();
 
-    const authRes = await SyncTokenService.validateAndRegisterDevice(tokenSecret, deviceFp);
+    const authRes = await SyncTokenService.validateAndRegisterDevice(tokenSecret, deviceFp, { nodeId, ip });
     if (!authRes.valid) {
       return res.status(authRes.statusCode || 401).json({ success: false, error: authRes.error });
     }
@@ -95,8 +97,10 @@ syncRouter.get('/download/:type/:id', async (req: Request, res: Response, next: 
   try {
     const tokenSecret = (req.headers['x-zgalaxy-signature'] as string) || '';
     const deviceFp = (req.headers['x-device-fingerprint'] as string) || '';
+    const nodeId = (req.headers['x-node-id'] as string) || '';
+    const ip = ((req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress || '').split(',')[0].trim();
 
-    const authRes = await SyncTokenService.validateAndRegisterDevice(tokenSecret, deviceFp);
+    const authRes = await SyncTokenService.validateAndRegisterDevice(tokenSecret, deviceFp, { nodeId, ip });
     if (!authRes.valid) {
       return res.status(authRes.statusCode || 401).json({ success: false, error: authRes.error });
     }
@@ -146,6 +150,33 @@ syncRouter.post('/tokens/:id/revoke', requireRole('ADMIN', 'OPERATOR'), async (r
   try {
     const token = await SyncTokenService.revokeToken(req.params.id);
     res.json({ success: true, data: token });
+  } catch (err) {
+    next(err);
+  }
+});
+
+syncRouter.delete('/tokens/:id', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await SyncTokenService.deleteToken(req.params.id);
+    res.json({ success: true, message: `Token ${req.params.id} deleted successfully.` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+syncRouter.post('/tokens/:id/delete', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await SyncTokenService.deleteToken(req.params.id);
+    res.json({ success: true, message: `Token ${req.params.id} deleted successfully.` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+syncRouter.post('/tokens/purge-revoked', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const count = await SyncTokenService.purgeRevokedTokens();
+    res.json({ success: true, message: `Purged ${count} revoked token(s).`, purgedCount: count });
   } catch (err) {
     next(err);
   }

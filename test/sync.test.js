@@ -104,22 +104,29 @@ test('GET /api/v1/sync/manifest returns 304 Not Modified when ETag matches', asy
   assert.strictEqual(res2.status, 304);
 });
 
-test('Single Token enforces strict 1-device quota (403 on 2nd device)', async () => {
-  // Device 1 succeeds
+test('Single Token enforces permanent binding to 1st client, permits reconnects, and blocks 2nd client', async () => {
+  // Client 1 connects for the first time
   const res1 = await syncReq('GET', '/api/v1/sync/manifest', {
     token: singleToken.tokenSecret,
     fingerprint: 'device_node_single_alpha',
   });
   assert.strictEqual(res1.status, 200);
 
-  // Device 2 fails
+  // Client 1 reconnects (permitted)
+  const res1Again = await syncReq('GET', '/api/v1/sync/manifest', {
+    token: singleToken.tokenSecret,
+    fingerprint: 'device_node_single_alpha',
+  });
+  assert.strictEqual(res1Again.status, 200);
+
+  // Client 2 attempts to use Client 1's single token (strictly rejected)
   const res2 = await syncReq('GET', '/api/v1/sync/manifest', {
     token: singleToken.tokenSecret,
     fingerprint: 'device_node_single_beta',
   });
   assert.strictEqual(res2.status, 403);
   const errData = await res2.json();
-  assert.ok(errData.error.includes('Device limit exceeded'));
+  assert.ok(errData.error.includes('bound to a single client device'));
 });
 
 test('Revoked token is rejected immediately (403)', async () => {
@@ -152,4 +159,40 @@ test('Backend enforces CONTRACT 365-day fixed duration and SINGLE 1-device limit
     maxDevices: 100,
   });
   assert.strictEqual(singleTok.maxDevices, 1, 'SINGLE mode must enforce exactly 1 device');
+});
+
+test('Token deletion permanently removes token from store', async () => {
+  const token = await SyncTokenService.createToken({
+    name: 'Temporary Token to Delete',
+  });
+  assert.ok(token.tokenId);
+
+  // Verify it exists
+  const tokensBefore = await SyncTokenService.listTokens();
+  assert.ok(tokensBefore.some((t) => t.tokenId === token.tokenId));
+
+  // Delete token
+  const deleted = await SyncTokenService.deleteToken(token.tokenId);
+  assert.strictEqual(deleted, true);
+
+  // Verify it no longer exists
+  const tokensAfter = await SyncTokenService.listTokens();
+  assert.strictEqual(tokensAfter.some((t) => t.tokenId === token.tokenId), false);
+});
+
+test('Purge revoked tokens removes only REVOKED tokens from store', async () => {
+  const activeToken = await SyncTokenService.createToken({ name: 'Active Token' });
+  const tokToRevoke1 = await SyncTokenService.createToken({ name: 'Revoke Me 1' });
+  const tokToRevoke2 = await SyncTokenService.createToken({ name: 'Revoke Me 2' });
+
+  await SyncTokenService.revokeToken(tokToRevoke1.tokenId);
+  await SyncTokenService.revokeToken(tokToRevoke2.tokenId);
+
+  const purgedCount = await SyncTokenService.purgeRevokedTokens();
+  assert.ok(purgedCount >= 2);
+
+  const tokensAfter = await SyncTokenService.listTokens();
+  assert.strictEqual(tokensAfter.some((t) => t.tokenId === tokToRevoke1.tokenId), false);
+  assert.strictEqual(tokensAfter.some((t) => t.tokenId === tokToRevoke2.tokenId), false);
+  assert.strictEqual(tokensAfter.some((t) => t.tokenId === activeToken.tokenId), true);
 });
