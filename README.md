@@ -59,9 +59,19 @@ Aggregate multiple federated Planet root endpoints into a single, unified multi-
 - **Cloudflare Integration:** Seamlessly syncs A/AAAA records via Cloudflare REST API v4 with token validation and audit logging.
 - **Auto-Rebuild Trigger:** Automatically recompiles Planet binaries when public IP addresses change.
 
-### 7. 🎨 Obsidian & Gold TUI Aesthetics (Zero-Icon Policy)
+### 7. 🔑 ZGALAXY Client Dynamic Sync & Access Tokens (`Engine Sync`)
+- **Automated Topology Discovery:** Sovereign clients connect via `ZGALAXY Engine Sync` to dynamically receive and atomically apply Planet and Moon updates without manual binary copying.
+- **Cryptographic Device Binding & Anti-Hijacking:** `SINGLE` tokens lock permanently to the first connecting client (`X-Device-Fingerprint` & `X-Node-ID`), allowing seamless client reconnects while blocking (HTTP 403) all other client nodes.
+- **Flexible Token Scopes & Contracts:**
+  - `SINGLE`: Dedicated 1-to-1 client binding with anti-sharing enforcement.
+  - `GROUP`: Team & fleet management with configurable device quotas (`maxDevices`).
+  - `CONTRACT`: Time-limited subscription contracts (fixed 365-day duration with locked expiry inputs).
+- **Token Deletion & Purging Engine:** Admin endpoints for individual token removal (`DELETE /api/v1/sync/tokens/:id`) and one-click batch purging of all revoked tokens (`POST /api/v1/sync/tokens/purge-revoked`).
+- **Live Device Inspector in Web Console:** Inspect bound client fingerprints, Node IDs, remote IPs, initial binding dates, and last-seen timestamps in real time.
+
+### 8. 🎨 Obsidian & Gold TUI Aesthetics (Zero-Icon Policy)
 - **Interactive TUI Console:** High-contrast Obsidian Black (`#08080a`) and Galaxy Gold (`#ffd700`) styling.
-- **100% Text-Based Controls:** Zero icon bloat. All actions use clear text tags (`[ SYNC CLUSTER ]`, `[ MIGRATE MOON ]`, `[ REVOKE ]`).
+- **100% Text-Based Controls:** Zero icon bloat. All actions use clear text tags (`[ SYNC CLUSTER ]`, `[ MIGRATE MOON ]`, `[ REVOKE ]`, `[ PURGE ALL REVOKED ]`, `[ DELETE ]`).
 - **Custom Non-Blocking Dialogs:** Zero browser native popups (`alert`, `confirm`). Custom TUI modals ensure seamless workflow continuity.
 
 ---
